@@ -44,7 +44,7 @@
   };
   let cpRange = 'cur', cpTopMode = 'amount', cpCat = '', cpQ = '', cpLimit = 60;
   const BOOKMARKLET = `javascript:(function()%7Bvar%20APP%3D'https%3A%2F%2Fbrooksserviceskim.github.io%2Fhm-budget%2F'%3Bvar%20clean%3Dfunction(s)%7Breturn%20String(s%7C%7C'').replace(%2F%5Cs%2B%2Fg%2C'%20').trim()%7D%3Bvar%20pad%3Dfunction(n)%7Breturn%20String(n).padStart(2%2C'0')%7D%3Bvar%20isPrice%3Dfunction(t)%7Breturn%20%2F%5E%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%24%2F.test(t)%7D%3Bvar%20isQty%3Dfunction(t)%7Breturn%20%2F%5E%5Cd%2B%5Cs*%EA%B0%9C%24%2F.test(t)%7D%3Bvar%20isDate%3Dfunction(t)%7Breturn%20%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F.test(t)%7D%3Bvar%20BAD%3D%2F%EC%9E%A5%EB%B0%94%EA%B5%AC%EB%8B%88%7C%EB%B0%B0%EC%86%A1%EC%A1%B0%ED%9A%8C%7C%EB%A6%AC%EB%B7%B0%7C%EA%B5%90%ED%99%98%7C%EB%B0%98%ED%92%88%7C%EC%9E%AC%EA%B5%AC%EB%A7%A4%7C%EC%A3%BC%EB%AC%B8%20%EC%83%81%EC%84%B8%7C%EB%8D%94%EB%B3%B4%EA%B8%B0%7C%EC%B7%A8%EC%86%8C%7C%EC%98%81%EC%88%98%EC%A6%9D%7C%EB%AC%B8%EC%9D%98%2F%3Bvar%20rows%3D%5B%5D%2Cseen%3D%7B%7D%2CcurDate%3D''%3Bvar%20w%3Ddocument.createTreeWalker(document.body%2CNodeFilter.SHOW_ELEMENT%2Cnull%2Cfalse)%3Bvar%20nodes%3D%5B%5D%3Bwhile(w.nextNode())%7Bnodes.push(w.currentNode)%7Dfor(var%20i%3D0%3Bi%3Cnodes.length%3Bi%2B%2B)%7Bvar%20el%3Dnodes%5Bi%5D%3Bif(el.children.length%3D%3D%3D0)%7Bvar%20t%3Dclean(el.textContent)%3Bif(isDate(t))%7Bvar%20m%3Dt.match(%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F)%3BcurDate%3Dm%5B1%5D%2B'-'%2Bpad(m%5B2%5D)%2B'-'%2Bpad(m%5B3%5D)%3Bcontinue%7Dif(isPrice(t))%7Bvar%20price%3DNumber(t.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%3Bif(!price)%7Bcontinue%7Dvar%20box%3Del%2Clv%3D0%3Bwhile(box.parentElement%26%26lv%3C5)%7Bbox%3Dbox.parentElement%3Blv%2B%2B%3Bvar%20leaves%3Dbox.querySelectorAll('*')%2Ccand%3D%5B%5D%2Cqty%3D1%3Bfor(var%20j%3D0%3Bj%3Cleaves.length%3Bj%2B%2B)%7Bvar%20e2%3Dleaves%5Bj%5D%3Bif(e2.children.length)continue%3Bvar%20s2%3Dclean(e2.textContent)%3Bif(!s2)continue%3Bif(isQty(s2))%7Bqty%3DNumber(s2.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%7C%7C1%3Bcontinue%7Dif(isPrice(s2)%7C%7CisDate(s2))continue%3Bif(BAD.test(s2))continue%3Bif(s2.length%3E%3D5)cand.push(s2)%3B%7Dcand.sort(function(a%2Cb)%7Breturn%20b.length-a.length%7D)%3Bif(cand.length)%7Bvar%20name%3Dcand%5B0%5D.replace(%2F%5Cs*%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%5Cs*%24%2F%2C'').trim()%3Bif(name.length%3E%3D5)%7Bvar%20key%3DcurDate%2B'%7C'%2Bname%2B'%7C'%2Bprice%2B'%7C'%2Bqty%3Bif(!seen%5Bkey%5D)%7Bseen%5Bkey%5D%3D1%3Brows.push(%7Bd%3AcurDate%2Cn%3Aname.slice(0%2C120)%2Cq%3Aqty%2Cp%3Aprice%7D)%7Dbreak%3B%7D%7D%7D%7D%7D%7Dif(!rows.length)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%84%20%EC%B0%BE%EC%A7%80%20%EB%AA%BB%ED%96%88%EC%8A%B5%EB%8B%88%EB%8B%A4.%5Cn%EC%BF%A0%ED%8C%A1%20%EC%A3%BC%EB%AC%B8%EB%AA%A9%EB%A1%9D%20%ED%99%94%EB%A9%B4%EC%97%90%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dif(rows.length%3E250)%7Brows%3Drows.slice(0%2C250)%7Dvar%20payload%3DencodeURIComponent(JSON.stringify(rows))%3Bvar%20url%3DAPP%2B'%23cpimport%3D'%2Bpayload%3Bif(url.length%3E60000)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%B4%20%EB%84%88%EB%AC%B4%20%EB%A7%8E%EC%8A%B5%EB%8B%88%EB%8B%A4.%20%ED%8E%98%EC%9D%B4%EC%A7%80%EB%A5%BC%20%EB%82%98%EB%88%A0%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dvar%20win%3Dnull%3Btry%7Bwin%3Dwindow.open(url%2C'_blank')%7Dcatch(e)%7B%7Dif(!win)%7Blocation.href%3Durl%7D%7D)()%3B`;
-  const VIEW_TITLE = { home: '가계부', ledger: '거래 내역', coupang: '쿠팡', fixed: '고정비', analysis: '분석',
+  const VIEW_TITLE = { home: '대시보드', ledger: '가계부', coupang: '쿠팡', fixed: '고정비', analysis: '분석',
                        cpimport: '쿠팡 가져오기', expense: '지출 입력', budget: '생활비', add: '입력',
                        more: '더보기', upload: '명세서 업로드', income: '수입 입력',
                        work: '업무비용 환급', info: '데이터 정보' };
@@ -221,6 +221,7 @@
   });
 
   function renderAll() {
+    $('#viewTitle').textContent = VIEW_TITLE[view] || '대시보드';
     if (!TX.length) return;
     applyPerson();
     renderMonthNav();
@@ -270,11 +271,29 @@
     $('#heroR').textContent = '수입 ' + fmt(inc);
 
     const PL = A.planSummary(FIXED);
+
+    /* 이번 달 남은 생활비 — 화면에서 어느 달을 보든 항상 '오늘' 기준, 가구 공동 */
+    const nowD = new Date();
+    const curYM = `${nowD.getFullYear()}-${pad2(nowD.getMonth() + 1)}`;
+    const dim = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate();
+    const dnow = nowD.getDate();
+    const bgUsed = TX.filter(t => t.tx_date.slice(0, 7) === curYM && isBudgetTx(t))
+                     .reduce((a, t) => a + t.amount, 0);
+    const bgAmt = +BUDGET.amount || 0;
+    const bgLeft = bgAmt - bgUsed;
+    const bgPace = bgAmt ? (bgUsed / bgAmt * 100) - (dnow / dim * 100) : 0;
+
     const stat = (n, v, d, color) => `<div class="stat">
       <div class="n"><i style="background:${color}"></i>${n}</div>
       <div class="v num">${v}</div>${d ? `<div class="d ${d.cls || ''}">${d.txt}</div>` : ''}</div>`;
     const diff = prevExp ? exp - prevExp : null;
     $('#homeStats').innerHTML =
+      `<div class="stat" style="cursor:pointer" data-go="budget">
+         <div class="n"><i style="background:var(--accent)"></i>남은 생활비 (${nowD.getMonth() + 1}월)</div>
+         <div class="v num" style="color:${bgLeft < 0 ? 'var(--expense)' : 'var(--ink)'}">${fmt(bgLeft)}</div>
+         <div class="d ${bgPace > 5 ? 'up' : bgPace < -5 ? 'down' : 'flat'}">
+           ${dnow}일차 · 사용 ${man(bgUsed)} / ${man(bgAmt)}${bgLeft >= 0 ? ` · 하루 ${man(bgLeft / Math.max(1, dim - dnow + 1))}` : ' · 초과'}
+         </div></div>` +
       stat('이번 달 지출', fmt(exp), diff === null ? { txt: '비교할 지난달 없음', cls: 'flat' } :
         { txt: `지난달보다 ${diff > 0 ? '▲' : '▼'} ${man(Math.abs(diff))}`, cls: diff > 0 ? 'up' : 'down' }, 'var(--ink)') +
       stat('고정비', fmt(PL.total), { txt: `매월 ${man(PL.monthlyTotal)}${PL.instTotal ? ` + 할부 ${man(PL.instTotal)}` : ''}`, cls: 'flat' }, 'var(--purple)') +
