@@ -326,6 +326,10 @@
           <div class="ic">🧳</div><div class="tx"><div class="t1">업무비용 환급</div>
           <div class="t2">루트82 개인카드 사용분</div></div><div class="chev">›</div>
         </div>
+        <div class="row" style="cursor:pointer" data-go="cpimport">
+          <div class="ic">🛒</div><div class="tx"><div class="t1">쿠팡 주문 가져오기</div>
+          <div class="t2">폰에서 버튼 하나로 새 주문 추가</div></div><div class="chev">›</div>
+        </div>
         <div class="row" style="cursor:pointer" data-go="info">
           <div class="ic">ℹ️</div><div class="tx"><div class="t1">데이터 정보</div>
           <div class="t2">기간 · 건수 · 출처</div></div><div class="chev">›</div>
@@ -402,6 +406,40 @@
         <div class="tbl-wrap"><table id="tblWorkCand"><thead><tr>
           <th>일자</th><th>가맹점</th><th class="num">금액</th><th>업무</th>
         </tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ---------- 쿠팡 가져오기 ---------- -->
+    <section id="v-cpimport" class="view hide">
+      <div class="card">
+        <h2>쿠팡 주문 가져오기</h2>
+        <p class="desc">
+          쿠팡 주문목록 화면에서 <b>북마크 하나만 누르면</b> 새 주문이 이 앱에 저장됩니다.
+          이미 들어온 주문은 자동으로 걸러지니 아무 때나 눌러도 됩니다.
+        </p>
+        <button class="btn acc block" id="bmCopy">북마클릿 코드 복사</button>
+        <textarea id="bmCode" readonly style="width:100%;height:88px;margin-top:12px;padding:10px;
+          border:1px solid var(--line);border-radius:12px;font:11px/1.4 ui-monospace,Menlo,monospace;
+          background:#f9fafb;resize:none"></textarea>
+      </div>
+
+      <div class="card">
+        <h2>아이폰 설치 방법</h2>
+        <ol style="font-size:13.5px;color:var(--ink2);line-height:1.8;padding-left:20px;margin:0">
+          <li>위 <b>북마클릿 코드 복사</b> 를 누릅니다</li>
+          <li>사파리에서 아무 페이지나 열고 <b>공유 → 북마크 추가</b> → 이름을 <b>쿠팡 가져오기</b> 로 저장</li>
+          <li><b>북마크 → 편집</b> 에서 방금 만든 항목을 누르고, <b>주소칸을 지운 뒤 복사한 코드를 붙여넣기</b></li>
+          <li>쿠팡 주문목록을 열고 <b>주소창 → 북마크 → 쿠팡 가져오기</b> 를 누르면 끝</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>안드로이드 · PC</h2>
+        <p class="desc" style="margin:0">
+          <b>PC 크롬</b> — 북마크바에서 우클릭 → 페이지 추가 → URL 칸에 코드 붙여넣기<br>
+          <b>안드로이드 크롬</b> — 북마크 추가 후 편집해서 URL을 코드로 교체<br>
+          여러 해치 주문을 한꺼번에 모으려면 PC용 <b>크롬 확장</b>을 쓰세요.
+        </p>
       </div>
     </section>
 
