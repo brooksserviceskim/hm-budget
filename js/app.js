@@ -16,8 +16,14 @@
   const BUDGET_SUBS = new Set(['쿠팡', '마트/장보기', '편의점', '기타식품',
                                '배달', '카페', '베이커리/간식', '외식', '패스트푸드',
                                '온라인/백화점', '간편결제']);
-  const isBudgetTx = t => A.isHouseholdExpense(t) &&
-    (BUDGET_SUBS.has(t.subcategory) || (t.source === 'sms' && t.category === '미분류'));
+  const BUDGET_CATS = new Set(['식료품·비주류음료', '음식·숙박']);
+  function isBudgetTx(t) {
+    if (!A.isHouseholdExpense(t)) return false;
+    const m = t.memo || '';
+    if (m.includes('[생활비제외]')) return false;
+    if (m.includes('[생활비]')) return true;
+    return BUDGET_SUBS.has(t.subcategory) || BUDGET_CATS.has(t.category) || t.source === 'sms';
+  }
   let charts = {}, seeding = false;
   let months = [], curMonth = null;
   let view = 'home', anRange = 3, gran = 'month';
@@ -28,7 +34,8 @@
   const canWrite = () => !!USER;                              // 둘 다 자기 것은 쓸 수 있음
   const isAdmin  = () => USER && USER.role === 'owner';       // 김현우 : 전체 관리
   const ownerOf  = r => r.owner || '김현우';
-  const canEdit  = r => USER && (isAdmin() || ownerOf(r) === USER.name);
+  const canEdit  = r => !!USER;                              // 거래는 부부 공용
+  const canEditFixed = r => USER && (isAdmin() || ownerOf(r) === USER.name);
   const PEOPLE   = ['김현우', '홍미란'];
   const toast = m => {
     $$('.toast').forEach(t => t.remove());
@@ -38,7 +45,7 @@
   let cpRange = 'cur', cpTopMode = 'amount', cpCat = '', cpQ = '', cpLimit = 60;
   const BOOKMARKLET = `javascript:(function()%7Bvar%20APP%3D'https%3A%2F%2Fbrooksserviceskim.github.io%2Fhm-budget%2F'%3Bvar%20clean%3Dfunction(s)%7Breturn%20String(s%7C%7C'').replace(%2F%5Cs%2B%2Fg%2C'%20').trim()%7D%3Bvar%20pad%3Dfunction(n)%7Breturn%20String(n).padStart(2%2C'0')%7D%3Bvar%20isPrice%3Dfunction(t)%7Breturn%20%2F%5E%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%24%2F.test(t)%7D%3Bvar%20isQty%3Dfunction(t)%7Breturn%20%2F%5E%5Cd%2B%5Cs*%EA%B0%9C%24%2F.test(t)%7D%3Bvar%20isDate%3Dfunction(t)%7Breturn%20%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F.test(t)%7D%3Bvar%20BAD%3D%2F%EC%9E%A5%EB%B0%94%EA%B5%AC%EB%8B%88%7C%EB%B0%B0%EC%86%A1%EC%A1%B0%ED%9A%8C%7C%EB%A6%AC%EB%B7%B0%7C%EA%B5%90%ED%99%98%7C%EB%B0%98%ED%92%88%7C%EC%9E%AC%EA%B5%AC%EB%A7%A4%7C%EC%A3%BC%EB%AC%B8%20%EC%83%81%EC%84%B8%7C%EB%8D%94%EB%B3%B4%EA%B8%B0%7C%EC%B7%A8%EC%86%8C%7C%EC%98%81%EC%88%98%EC%A6%9D%7C%EB%AC%B8%EC%9D%98%2F%3Bvar%20rows%3D%5B%5D%2Cseen%3D%7B%7D%2CcurDate%3D''%3Bvar%20w%3Ddocument.createTreeWalker(document.body%2CNodeFilter.SHOW_ELEMENT%2Cnull%2Cfalse)%3Bvar%20nodes%3D%5B%5D%3Bwhile(w.nextNode())%7Bnodes.push(w.currentNode)%7Dfor(var%20i%3D0%3Bi%3Cnodes.length%3Bi%2B%2B)%7Bvar%20el%3Dnodes%5Bi%5D%3Bif(el.children.length%3D%3D%3D0)%7Bvar%20t%3Dclean(el.textContent)%3Bif(isDate(t))%7Bvar%20m%3Dt.match(%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F)%3BcurDate%3Dm%5B1%5D%2B'-'%2Bpad(m%5B2%5D)%2B'-'%2Bpad(m%5B3%5D)%3Bcontinue%7Dif(isPrice(t))%7Bvar%20price%3DNumber(t.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%3Bif(!price)%7Bcontinue%7Dvar%20box%3Del%2Clv%3D0%3Bwhile(box.parentElement%26%26lv%3C5)%7Bbox%3Dbox.parentElement%3Blv%2B%2B%3Bvar%20leaves%3Dbox.querySelectorAll('*')%2Ccand%3D%5B%5D%2Cqty%3D1%3Bfor(var%20j%3D0%3Bj%3Cleaves.length%3Bj%2B%2B)%7Bvar%20e2%3Dleaves%5Bj%5D%3Bif(e2.children.length)continue%3Bvar%20s2%3Dclean(e2.textContent)%3Bif(!s2)continue%3Bif(isQty(s2))%7Bqty%3DNumber(s2.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%7C%7C1%3Bcontinue%7Dif(isPrice(s2)%7C%7CisDate(s2))continue%3Bif(BAD.test(s2))continue%3Bif(s2.length%3E%3D5)cand.push(s2)%3B%7Dcand.sort(function(a%2Cb)%7Breturn%20b.length-a.length%7D)%3Bif(cand.length)%7Bvar%20name%3Dcand%5B0%5D.replace(%2F%5Cs*%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%5Cs*%24%2F%2C'').trim()%3Bif(name.length%3E%3D5)%7Bvar%20key%3DcurDate%2B'%7C'%2Bname%2B'%7C'%2Bprice%2B'%7C'%2Bqty%3Bif(!seen%5Bkey%5D)%7Bseen%5Bkey%5D%3D1%3Brows.push(%7Bd%3AcurDate%2Cn%3Aname.slice(0%2C120)%2Cq%3Aqty%2Cp%3Aprice%7D)%7Dbreak%3B%7D%7D%7D%7D%7D%7Dif(!rows.length)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%84%20%EC%B0%BE%EC%A7%80%20%EB%AA%BB%ED%96%88%EC%8A%B5%EB%8B%88%EB%8B%A4.%5Cn%EC%BF%A0%ED%8C%A1%20%EC%A3%BC%EB%AC%B8%EB%AA%A9%EB%A1%9D%20%ED%99%94%EB%A9%B4%EC%97%90%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dif(rows.length%3E250)%7Brows%3Drows.slice(0%2C250)%7Dvar%20payload%3DencodeURIComponent(JSON.stringify(rows))%3Bvar%20url%3DAPP%2B'%23cpimport%3D'%2Bpayload%3Bif(url.length%3E60000)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%B4%20%EB%84%88%EB%AC%B4%20%EB%A7%8E%EC%8A%B5%EB%8B%88%EB%8B%A4.%20%ED%8E%98%EC%9D%B4%EC%A7%80%EB%A5%BC%20%EB%82%98%EB%88%A0%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dvar%20win%3Dnull%3Btry%7Bwin%3Dwindow.open(url%2C'_blank')%7Dcatch(e)%7B%7Dif(!win)%7Blocation.href%3Durl%7D%7D)()%3B`;
   const VIEW_TITLE = { home: '가계부', ledger: '거래 내역', coupang: '쿠팡', fixed: '고정비', analysis: '분석',
-                       cpimport: '쿠팡 가져오기', expense: '지출 입력', budget: '생활비',
+                       cpimport: '쿠팡 가져오기', expense: '지출 입력', budget: '생활비', add: '입력',
                        more: '더보기', upload: '명세서 업로드', income: '수입 입력',
                        work: '업무비용 환급', info: '데이터 정보' };
   const MONTH_VIEWS = new Set(['home', 'ledger']);
@@ -183,6 +190,8 @@
       $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === 'more'));
     $('#viewTitle').textContent = VIEW_TITLE[v] || '가계부';
     $('#mnav').classList.toggle('hide', !MONTH_VIEWS.has(v));
+    $('#personBar')?.classList.toggle('hide', v === 'budget' || !['home', 'ledger', 'fixed', 'analysis'].includes(v));
+    $('#fab')?.classList.toggle('hide', !['home', 'ledger', 'budget'].includes(v));
     window.scrollTo(0, 0);
     renderAll();
   }
@@ -217,6 +226,7 @@
     renderMonthNav();
     if (view === 'home') renderHome();
     if (view === 'ledger') renderLedger();
+    if (view === 'add') renderAdd();
     if (view === 'budget') renderBudget();
     if (view === 'coupang') renderCoupang();
     if (view === 'fixed') renderFixedTab();
@@ -379,31 +389,46 @@
       html += `<div class="row ${t.is_work ? 'work' : ''}" data-id="${t.id}">
         <div class="ic">${income ? '💰' : C.iconOf(t.category, t.subcategory)}</div>
         <div class="tx"><div class="t1">${esc(t.merchant)}${t.installment ? ` <span class="tag">할부 ${t.installment}</span>` : ''}${t.is_work ? ' <span class="tag w">업무</span>' : ''}</div>
-          <div class="t2">${income ? (t.income_src || '수입') : (t.subcategory || t.category)} · ${srcLabel(t.source)}</div></div>
+          <div class="t2">${income ? (t.income_src || '수입') : catSelect(t)} · ${srcLabel(t.source)}</div></div>
         <div class="amt num ${income ? 'in' : ''}">${income ? '+' : '-'}${fmt(t.amount)}</div></div>`;
     }
     $('#ledgerList').innerHTML = html || '<p class="desc" style="margin:0;padding:12px 0">내역이 없습니다.</p>';
   }
-  const srcLabel = s => ({ samsung_card: '삼성카드', bank: '기업은행', sheet: '가계부 시트', manual: '직접 입력' }[s] || s);
+  const srcLabel = s => ({ samsung_card: '삼성카드', bank: '기업은행', sheet: '가계부 시트',
+                           manual: '직접 입력', sms: '문자 자동' }[s] || s);
+
+  /** 분류 드롭다운 (언제든 몇 번이든 변경 가능) */
+  function catSelect(t) {
+    if (!canEdit(t)) return esc(t.subcategory || t.category);
+    const opts = C.CATEGORIES.filter(c => c !== '미분류')
+      .map(c => `<option value="${c}" ${c === t.category ? 'selected' : ''}>${C.CAT_ICON[c] || ''} ${c}</option>`).join('');
+    return `<select class="catsel" data-id="${t.id}">
+      <option value="미분류" ${t.category === '미분류' ? 'selected' : ''}>❓ 미분류</option>${opts}</select>` +
+      (t.subcategory ? ` <span style="color:var(--muted)">${esc(t.subcategory)}</span>` : '');
+  }
+
+  // 드롭다운 변경 → 즉시 저장
+  document.addEventListener('change', async e => {
+    const sel = e.target.closest('.catsel'); if (!sel) return;
+    e.stopPropagation();
+    const id = +sel.dataset.id, t = TX.find(x => x.id === id);
+    if (!t) return;
+    const cat = sel.value;
+    const sub = C.CATEGORIES.includes(cat) && cat === t.category ? t.subcategory : '';
+    await S.updateTx(id, { category: cat, subcategory: sub });
+    t.category = cat; t.subcategory = sub;
+    applyPerson(); renderAll(); toast(`${t.merchant} → ${cat}`);
+  });
 
   // 거래 상세 (탭하면 카테고리/업무 변경)
   $('#ledgerList').addEventListener('click', async e => {
     const r = e.target.closest('.row'); if (!r) return;
+    if (e.target.closest('.catsel')) return;
     const t = TX.find(x => x.id === +r.dataset.id);
-    if (!t || t.kind === 'income') return;
-    if (!canEdit(t)) { toast(`${ownerOf(t)}님 항목이라 수정할 수 없습니다`); return; }
-    const cats = C.CATEGORIES;
-    const cur = cats.indexOf(t.category);
-    const ans = prompt(
-      `${t.merchant}\n${fmt(t.amount)} · ${t.tx_date}\n\n` +
-      `분류를 바꾸려면 번호를 입력하세요.\n` +
-      cats.map((c, i) => `${i + 1}. ${c}`).join('\n') +
-      `\n\n0 = 업무비용 ${t.is_work ? '해제' : '표시'}`, String(cur + 1));
-    if (ans === null) return;
-    const n = parseInt(ans, 10);
-    if (n === 0) { await S.updateTx(t.id, { is_work: !t.is_work }); t.is_work = !t.is_work; toast(t.is_work ? '업무비용으로 제외' : '가계 지출로 복귀'); }
-    else if (n >= 1 && n <= cats.length) { await S.updateTx(t.id, { category: cats[n - 1] }); t.category = cats[n - 1]; toast('분류 변경됨'); }
-    renderLedger();
+    if (!t || t.kind === 'income' || !canEdit(t)) return;
+    if (!confirm(`${t.merchant} ${fmt(t.amount)}\n\n업무비용으로 ${t.is_work ? '해제' : '표시'}할까요?\n(분류는 아래 드롭다운에서 바꾸세요)`)) return;
+    await S.updateTx(t.id, { is_work: !t.is_work }); t.is_work = !t.is_work;
+    applyPerson(); renderLedger(); toast(t.is_work ? '업무비용으로 제외' : '가계 지출로 복귀');
   });
 
   /* ---------- 날짜 유틸 ---------- */
@@ -411,6 +436,101 @@
   const ymShift = (ym, k) => { const [y, m] = ym.split('-').map(Number);
     const d = new Date(y, m - 1 + k, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
   const todayYM = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+
+  /* ================= 통합 입력 (지출 · 수입) ================= */
+  $('#fab')?.addEventListener('click', () => go('add'));
+  $('#addKind')?.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#addKind button').forEach(x => x.classList.toggle('on', x === b));
+    const inc = b.dataset.k === 'income';
+    $('#addExpCard').classList.toggle('hide', inc);
+    $('#addIncCard').classList.toggle('hide', !inc);
+  });
+
+  function renderAdd() {
+    const today = new Date().toISOString().slice(0, 10);
+    $('#addWho').textContent = USER ? USER.name : '';
+    $('#addWho2').textContent = USER ? USER.name : '';
+    if (!$('#axC').options.length)
+      $('#axC').innerHTML = C.CATEGORIES.filter(c => c !== '미분류' && c !== '업무비용')
+        .map(c => `<option>${C.CAT_ICON[c] || ''} ${c}</option>`).join('');
+    if (!$('#aiS').options.length)
+      $('#aiS').innerHTML = CFG.INCOME_SOURCES.map(x => `<option>${x}</option>`).join('');
+    if (!$('#axD').value) $('#axD').value = today;
+    if (!$('#aiD').value) $('#aiD').value = today;
+
+    const mine = TX.filter(t => t.source === 'manual')
+      .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1).slice(0, 40);
+    $('#addList').innerHTML = mine.map(t => {
+      const inc = t.kind === 'income';
+      return `<div class="row" data-id="${t.id}">
+        <div class="ic">${inc ? '💰' : C.iconOf(t.category, t.subcategory)}</div>
+        <div class="tx"><div class="t1">${esc(inc ? (t.income_src || t.merchant) : t.merchant)}
+          ${(!inc && isBudgetTx(t)) ? '<span class="tag g">생활비</span>' : ''}</div>
+          <div class="t2">${t.tx_date} · ${inc ? '수입' : t.category} · ${ownerOf(t)}</div></div>
+        <div class="amt num ${inc ? 'in' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div>
+        ${canEdit(t) ? '<button class="btn ghost sm add-del" style="margin-left:8px">삭제</button>' : ''}</div>`;
+    }).join('') || '<p class="desc" style="margin:0;padding:10px 0">직접 입력한 내역이 없습니다.</p>';
+  }
+
+  const stripIcon = v => v.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+
+  // 사용처를 치면 분류를 자동으로 골라준다 (직접 바꿔도 됨)
+  $('#axN')?.addEventListener('input', e => {
+    const g = C.categorize(e.target.value.trim());
+    if (!g.matched) return;
+    const opt = [...$('#axC').options].find(o => stripIcon(o.value) === g.category);
+    if (opt) $('#axC').value = opt.value;
+    // 생활비 성격이면 체크, 아니면 해제
+    const budgetish = BUDGET_SUBS.has(g.sub) || BUDGET_CATS.has(g.category);
+    $('#axBudget').checked = budgetish;
+  });
+
+  $('#addExpForm')?.addEventListener('submit', async e => {
+    e.preventDefault(); $('#axErr').textContent = '';
+    try {
+      const d = $('#axD').value, amt = +$('#axA').value, nm = $('#axN').value.trim();
+      if (!d || !amt || !nm) throw new Error('날짜 · 금액 · 사용처를 입력하세요.');
+      const cat = stripIcon($('#axC').value);
+      const g = C.categorize(nm);
+      const tag = $('#axBudget').checked ? '[생활비]' : '[생활비제외]';
+      const memo = [tag, $('#axM').value.trim()].filter(Boolean).join(' ');
+      await S.insertTx([{
+        kind: 'expense', source: 'manual', tx_date: d, merchant: C.normalizeMerchant(nm),
+        amount: amt, raw_amount: amt, benefit: 0,
+        category: cat, subcategory: (g.matched && g.category === cat) ? g.sub : '',
+        income_src: null, is_work: false, installment: '', bill_month: null,
+        memo, owner: USER.name,
+        fingerprint: `manual|out|${d}|${nm}|${amt}|${Date.now()}`
+      }]);
+      $('#axA').value = ''; $('#axN').value = ''; $('#axM').value = '';
+      await reload(); go('add'); toast($('#axBudget').checked ? '생활비에 반영되었습니다' : '지출이 저장되었습니다');
+    } catch (err) { $('#axErr').textContent = err.message; }
+  });
+
+  $('#addIncForm')?.addEventListener('submit', async e => {
+    e.preventDefault(); $('#aiErr').textContent = '';
+    try {
+      const src = $('#aiS').value, d = $('#aiD').value, amt = +$('#aiA').value;
+      if (!d || !amt) throw new Error('날짜와 금액을 입력하세요.');
+      await S.insertTx([{
+        kind: 'income', source: 'manual', tx_date: d, merchant: src, amount: amt, raw_amount: amt,
+        benefit: 0, category: '수입', subcategory: src, income_src: src, is_work: false,
+        installment: '', bill_month: null, memo: $('#aiM').value.trim(), owner: USER.name,
+        fingerprint: `manual|in|${d}|${src}|${amt}|${Date.now()}`
+      }]);
+      $('#aiA').value = ''; $('#aiM').value = '';
+      await reload(); go('add'); toast('수입이 저장되었습니다');
+    } catch (err) { $('#aiErr').textContent = err.message; }
+  });
+
+  $('#addList')?.addEventListener('click', async e => {
+    if (!e.target.classList.contains('add-del')) return;
+    const id = +e.target.closest('.row').dataset.id;
+    if (!confirm('삭제할까요?')) return;
+    await S.deleteTx(id); TX = TX.filter(t => t.id !== id);
+    applyPerson(); renderAdd(); toast('삭제됨');
+  });
 
   /* ================= 생활비 예산 ================= */
   $('#bgForm')?.addEventListener('submit', async e => {
@@ -429,7 +549,7 @@
     const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const today = now.getDate();
 
-    const rows = VTX.filter(t => t.tx_date.slice(0, 7) === ym && isBudgetTx(t));
+    const rows = TX.filter(t => t.tx_date.slice(0, 7) === ym && isBudgetTx(t));   // 가구 공동 예산
     const used = rows.reduce((a, t) => a + t.amount, 0);
     const amount = +BUDGET.amount || 0;
     const left = amount - used;
@@ -457,7 +577,7 @@
 
     // 지난달 같은 날까지 비교
     const prevYm = ymShift(ym, -1);
-    const prevSame = VTX.filter(t => t.tx_date.slice(0, 7) === prevYm &&
+    const prevSame = TX.filter(t => t.tx_date.slice(0, 7) === prevYm &&
       +t.tx_date.slice(8, 10) <= today && isBudgetTx(t)).reduce((a, t) => a + t.amount, 0);
     const stat = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
       <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
@@ -512,13 +632,22 @@
         const day = rows.filter(x => x.tx_date === t.tx_date).reduce((a, x) => a + x.amount, 0);
         html += `<div class="day-sep"><span>${t.tx_date}</span><span class="ln"></span><span class="num">${fmt(day)}</span></div>`;
       }
-      html += `<div class="row"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
+      html += `<div class="row" data-id="${t.id}"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
         <div class="tx"><div class="t1">${esc(t.merchant)}${t.source === 'sms' ? ' <span class="tag g">문자</span>' : ''}</div>
-          <div class="t2">${t.subcategory || t.category} · ${ownerOf(t)}</div></div>
-        <div class="amt num">${fmt(t.amount)}</div></div>`;
+          <div class="t2">${catSelect(t)} · ${ownerOf(t)}</div></div>
+        <div class="amt num">${fmt(t.amount)}</div>
+        ${canEdit(t) ? '<button class="btn ghost sm bg-del" style="margin-left:8px">삭제</button>' : ''}</div>`;
     }
     $('#bgList').innerHTML = html || '<p class="desc" style="margin:0;padding:10px 0">아직 사용 내역이 없습니다.</p>';
   }
+
+  $('#bgList')?.addEventListener('click', async e => {
+    if (!e.target.classList.contains('bg-del')) return;
+    const id = +e.target.closest('.row').dataset.id;
+    if (!confirm('이 내역을 삭제할까요?')) return;
+    await S.deleteTx(id); TX = TX.filter(t => t.id !== id);
+    applyPerson(); renderBudget(); toast('삭제됨');
+  });
 
   /* ================= 쿠팡 ================= */
   const cpMonths = () => [...new Set(CP.map(r => r.order_date.slice(0, 7)))].sort();
@@ -788,7 +917,7 @@
       const done = A.instDone(f);
       const inp = (cls, val, type, w) => `<input class="pill ${cls}" type="${type}" value="${esc(val ?? '')}" style="padding:5px 8px;font-size:12.5px;width:${w};border-radius:9px">`;
       const sel = (cls, opts, val) => `<select class="pill ${cls}" style="padding:5px 22px 5px 8px;font-size:12.5px;border-radius:9px">${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-      const mine = canEdit(f);
+      const mine = canEditFixed(f);
       if (!mine) return `<tr class="${done ? 'off' : ''}"><td>${f.active === false ? '중지' : '사용'}</td><td>${esc(f.name)} <span class="tag">${ownerOf(f)}</span></td>
         <td class="num">${fmt(+f.amount || 0)}</td><td>${f.cycle}</td><td>${f.kind}</td>
         <td>${f.kind === '할부' ? `${f.inst_now || 0}/${f.inst_total || 0}` : '—'}</td>
