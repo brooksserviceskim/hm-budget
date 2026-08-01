@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>현우 미란 가계부 · 앱 설치</title>
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  background:#f2f4f6;color:#191f28;padding:22px 18px 60px;line-height:1.6;
+  padding-top:calc(22px + env(safe-area-inset-top,0px))}
+.wrap{max-width:520px;margin:0 auto}
+.logo{width:64px;height:64px;border-radius:20px;background:#0f172a;color:#fff;display:flex;
+  align-items:center;justify-content:center;font-size:30px;font-weight:800;margin-bottom:16px}
+h1{font-size:23px;letter-spacing:-.7px;margin-bottom:4px}
+.sub{color:#8b95a1;font-size:14px;margin-bottom:22px}
+.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:12px;
+  box-shadow:0 1px 2px rgba(0,0,0,.03),0 6px 18px rgba(15,23,42,.045)}
+.card h2{font-size:16px;margin-bottom:10px;letter-spacing:-.3px}
+ol{padding-left:0;list-style:none;counter-reset:s}
+ol li{counter-increment:s;position:relative;padding-left:38px;margin-bottom:16px;font-size:15px}
+ol li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;height:26px;
+  border-radius:9px;background:#14b8a6;color:#fff;font-size:14px;font-weight:800;
+  display:flex;align-items:center;justify-content:center}
+ol li b{font-weight:800}
+.icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border-radius:7px;background:#eef1f4;vertical-align:-7px;margin:0 2px}
+.btn{display:block;text-align:center;background:#14b8a6;color:#fff;text-decoration:none;
+  padding:17px;border-radius:16px;font-weight:800;font-size:16px;margin:18px 0 8px}
+.note{background:#fffbeb;border-left:4px solid #f59e0b;border-radius:0 14px 14px 0;
+  padding:14px 16px;font-size:13.5px;color:#4e5968;margin-top:12px}
+.note b{color:#191f28}
+.tbl{width:100%;font-size:14px;border-collapse:collapse}
+.tbl td{padding:8px 0;border-bottom:1px solid #f2f4f6}
+.tbl td:first-child{color:#8b95a1;width:88px}
+.hide{display:none}
+.ok{background:#f0fdf7;border-left-color:#00b25d}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">₩</div>
+  <h1>현우 미란 가계부</h1>
+  <p class="sub">우리 둘만 보는 가계부 · 폰에 앱처럼 설치하기</p>
+
+  <div id="standalone" class="card ok hide" style="border-left:4px solid #00b25d">
+    <h2>이미 설치되어 있습니다 🎉</h2>
+    <p style="font-size:14px;color:#4e5968">홈 화면 아이콘으로 잘 열렸습니다. 아래 버튼으로 바로 시작하세요.</p>
+    <a class="btn" href="./index.html">가계부 열기</a>
+  </div>
+
+  <!-- 아이폰 -->
+  <div id="ios" class="card hide">
+    <h2>아이폰 · 3번만 누르면 끝</h2>
+    <ol>
+      <li>화면 <b>아래 가운데</b> 공유 버튼
+        <span class="icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#191f28" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 16V3"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>
+          </svg></span>
+        을 누릅니다</li>
+      <li>메뉴를 <b>아래로 쓸어</b> <b>홈 화면에 추가</b> 를 누릅니다</li>
+      <li>오른쪽 위 <b>추가</b> 를 누르면 완료</li>
+    </ol>
+    <div class="note">
+      <b>사파리에서만 됩니다.</b> 카카오톡이나 크롬으로 열었다면, 공유 버튼 →
+      <b>Safari로 열기</b> 를 먼저 눌러주세요.
+    </div>
+  </div>
+
+  <!-- 안드로이드 -->
+  <div id="android" class="card hide">
+    <h2>안드로이드 · 2번만 누르면 끝</h2>
+    <ol>
+      <li>주소창 오른쪽 <b>점 3개 (⋮)</b> 를 누릅니다</li>
+      <li><b>앱 설치</b> 또는 <b>홈 화면에 추가</b> 를 누릅니다</li>
+    </ol>
+    <a class="btn hide" id="installBtn" href="#">지금 설치하기</a>
+  </div>
+
+  <!-- PC -->
+  <div id="desktop" class="card hide">
+    <h2>PC에서 보고 계시네요</h2>
+    <p style="font-size:14px;color:#4e5968">
+      이 주소를 <b>폰으로</b> 열어야 설치할 수 있습니다.
+      카카오톡으로 나에게 보내거나, 아래 주소를 폰에서 입력하세요.
+    </p>
+    <div class="note" style="font-family:ui-monospace,Menlo,monospace;font-size:13px;
+      background:#f2f4f6;border-left-color:#cbd5e1;word-break:break-all">
+      https://brooksserviceskim.github.io/hm-budget/
+    </div>
+    <a class="btn" href="./index.html">그냥 브라우저에서 열기</a>
+  </div>
+
+  <div class="card">
+    <h2>로그인 정보</h2>
+    <table class="tbl">
+      <tr><td>홍미란</td><td>hy2823@naver.com</td></tr>
+      <tr><td>김현우</td><td>brooksservices.kim@gmail.com</td></tr>
+    </table>
+    <p style="font-size:13px;color:#8b95a1;margin-top:10px">
+      비밀번호는 각자 정한 것을 쓰세요. 잊었으면 김현우님에게 재설정 요청하세요.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>설치하면 뭐가 좋나요</h2>
+    <p style="font-size:14px;color:#4e5968">
+      주소창 없이 <b>앱처럼 전체화면</b>으로 열리고, 홈 화면 아이콘으로 바로 들어갑니다.
+      매번 주소를 찾을 필요가 없습니다.
+    </p>
+  </div>
+
+  <a class="btn" href="./index.html" style="background:#191f28">가계부 바로 열기</a>
+</div>
+
+<script>
+(function () {
+  var ua = navigator.userAgent;
+  var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var isAndroid = /Android/.test(ua);
+  var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  var show = function (id) { document.getElementById(id).classList.remove('hide'); };
+
+  if (standalone) { show('standalone'); return; }
+  if (isIOS) show('ios');
+  else if (isAndroid) show('android');
+  else show('desktop');
+
+  var deferred = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault(); deferred = e;
+    var b = document.getElementById('installBtn');
+    b.classList.remove('hide');
+    b.onclick = function (ev) { ev.preventDefault(); deferred.prompt(); };
+  });
+})();
+</script>
+</body>
+</html>

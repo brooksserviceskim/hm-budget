@@ -50,6 +50,25 @@
                        work: '업무비용 환급', info: '데이터 정보' };
   const MONTH_VIEWS = new Set(['home', 'ledger']);
 
+  /* ---------- 아이폰 설치 안내 배너 ---------- */
+  function iosInstallHint() {
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    if (!isIOS || standalone) return;
+    if (sessionStorage.getItem('ios_hint_closed')) return;
+    const d = document.createElement('div');
+    d.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(var(--tabh) + 12px);z-index:150;' +
+      'background:#191f28;color:#fff;border-radius:16px;padding:14px 16px;font-size:13.5px;line-height:1.55;' +
+      'box-shadow:0 10px 30px rgba(0,0,0,.35);display:flex;gap:10px;align-items:flex-start';
+    d.innerHTML = '<div style="flex:1">📱 <b>홈 화면에 추가</b>하면 앱처럼 쓸 수 있어요.<br>' +
+      '<span style="color:#93a4b8">아래 공유 버튼 → 홈 화면에 추가</span></div>' +
+      '<button style="border:0;background:#334155;color:#fff;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700">닫기</button>';
+    d.querySelector('button').onclick = () => { sessionStorage.setItem('ios_hint_closed', '1'); d.remove(); };
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), 15000);
+  }
+
   /* ================= 부팅 ================= */
   (async function boot() {
     BENCH = window.__BENCH__;
@@ -63,6 +82,7 @@
     stashHashPayload();
     const u = await S.currentUser().catch(() => null);
     if (u) enter(u);
+    setTimeout(iosInstallHint, 1500);
   })();
 
   $('#loginForm').addEventListener('submit', async e => {
