@@ -986,7 +986,11 @@
     const cats = C.CATEGORIES.filter(c => c !== '미분류');
     $('#fxCat').innerHTML = cats.map(c => `<option>${c}</option>`).join('');
 
-    $('#tblFx tbody').innerHTML = LIST.map(f => {
+    const sorted = [...LIST].sort((a, b) => {
+      const off = x => (x.active === false || A.instDone(x)) ? 1 : 0;
+      return off(a) - off(b) || (a.sort || 0) - (b.sort || 0);
+    });
+    $('#tblFx tbody').innerHTML = sorted.map(f => {
       const per = (+f.amount || 0) / (A.CYCLE_DIV[f.cycle] || 1);
       const done = A.instDone(f);
       const inp = (cls, val, type, w) => `<input class="pill ${cls}" type="${type}" value="${esc(val ?? '')}" style="padding:5px 8px;font-size:12.5px;width:${w};border-radius:9px">`;
@@ -1011,7 +1015,11 @@
         <td>${inp('fx-method', f.method, 'text', '105px')}</td>
         <td>${inp('fx-memo', f.memo, 'text', '160px')}</td>
         <td class="num"><b>${fmt(per)}</b></td>
-        <td><button class="btn ghost sm fx-del">삭제</button></td></tr>`;
+        <td style="white-space:nowrap">
+          ${f.kind === '할부' && !done
+            ? '<button class="btn ghost sm fx-done" style="margin-right:4px">납부완료</button>'
+            : (f.active !== false ? '<button class="btn ghost sm fx-stop" style="margin-right:4px">종료</button>' : '<button class="btn ghost sm fx-on" style="margin-right:4px">재개</button>')}
+          <button class="btn ghost sm fx-del">삭제</button></td></tr>`;
     }).join('') || '<tr><td colspan="11" style="color:var(--muted)">등록된 고정비가 없습니다.</td></tr>';
 
     // 자동 감지
@@ -1051,6 +1059,26 @@
   $('#tblFx').addEventListener('click', async e => {
     const tr = e.target.closest('tr'); if (!tr?.dataset.id) return;
     const id = +tr.dataset.id;
+    if (e.target.classList.contains('fx-done')) {
+      const f = FIXED.find(x => x.id === id);
+      if (!confirm(`${f.name} 을(를) 납부 완료 처리할까요?\n고정비 합계에서 빠집니다.`)) return;
+      await S.updateFixed(id, { inst_now: (+f.inst_total || 1) });
+      FIXED = await S.listFixed(); renderFixedTab(); renderHome();
+      toast(`${f.name} 완납! 월 ${man(+f.amount)} 절감`);
+      return;
+    }
+    if (e.target.classList.contains('fx-stop')) {
+      const f = FIXED.find(x => x.id === id);
+      if (!confirm(`${f.name} 을(를) 종료할까요?\n고정비 합계에서 빠지고, 나중에 재개할 수 있습니다.`)) return;
+      await S.updateFixed(id, { active: false });
+      FIXED = await S.listFixed(); renderFixedTab(); renderHome(); toast('종료되었습니다');
+      return;
+    }
+    if (e.target.classList.contains('fx-on')) {
+      await S.updateFixed(id, { active: true });
+      FIXED = await S.listFixed(); renderFixedTab(); renderHome(); toast('다시 시작합니다');
+      return;
+    }
     if (e.target.classList.contains('fx-plus')) {
       const f = FIXED.find(x => x.id === id);
       await S.updateFixed(id, { inst_now: (+f.inst_now || 0) + 1 });
@@ -1062,13 +1090,25 @@
       await S.deleteFixed(id); FIXED = await S.listFixed(); renderFixedTab(); toast('삭제됨');
     }
   });
+  $('#fxKind')?.addEventListener('change', () => {
+    const inst = $('#fxKind').value === '할부';
+    $('#fxInstTotal').classList.toggle('hide', !inst);
+    $('#fxInstNow').classList.toggle('hide', !inst);
+  });
+
   $('#fxForm').addEventListener('submit', async e => {
     e.preventDefault();
+    const isInst = $('#fxKind').value === '할부';
+    const total = +$('#fxInstTotal').value || null;
+    if (isInst && !total) { toast('할부 총 개월 수를 입력하세요'); return; }
     await S.insertFixed([{ name: $('#fxName').value, amount: +$('#fxAmt').value || 0,
       cycle: $('#fxCycle').value, kind: $('#fxKind').value, category: $('#fxCat').value,
       method: $('#fxMethod').value, match: $('#fxName').value, memo: '', active: true,
+      inst_total: isInst ? total : null,
+      inst_now: isInst ? (+$('#fxInstNow').value || 0) : null,
       owner: USER.name, sort: FIXED.length }]);
     $('#fxName').value = ''; $('#fxAmt').value = ''; $('#fxMethod').value = '';
+    $('#fxInstTotal').value = ''; $('#fxInstNow').value = '';
     FIXED = await S.listFixed(); renderFixedTab(); toast('추가되었습니다');
   });
   $('#tblFxDetect').addEventListener('click', async e => {

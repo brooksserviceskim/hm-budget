@@ -168,6 +168,10 @@
             <input class="pill" id="fxAmt" type="number" inputmode="numeric" placeholder="금액" required style="width:110px">
             <select class="pill" id="fxCycle"><option>매월</option><option>격월</option><option>분기</option><option>반기</option><option>연</option></select>
             <select class="pill" id="fxKind"><option>고정</option><option>할부</option></select>
+            <input class="pill hide" id="fxInstTotal" type="number" inputmode="numeric" min="1" max="60"
+                   placeholder="총 개월" style="width:100px" title="할부 총 개월 수">
+            <input class="pill hide" id="fxInstNow" type="number" inputmode="numeric" min="0" max="60"
+                   placeholder="낸 회차" style="width:100px" title="지금까지 낸 회차">
             <select class="pill" id="fxCat"></select>
             <input class="pill" id="fxMethod" placeholder="결제수단" style="width:120px">
             <button class="btn acc sm" type="submit">추가</button>
@@ -176,7 +180,7 @@
         <div class="tbl-wrap">
           <table id="tblFx"><thead><tr>
             <th>사용</th><th>항목</th><th class="num">금액</th><th>주기</th><th>유형</th><th>회차</th>
-            <th>분류</th><th>결제수단</th><th>메모</th><th class="num">월 환산</th><th></th>
+            <th>분류</th><th>결제수단</th><th>메모</th><th class="num">월 환산</th><th>정리</th>
           </tr></thead><tbody></tbody></table>
         </div>
       </div>
