@@ -80,22 +80,36 @@
       $('#email').type = 'text';
     }
     stashHashPayload();
+    // 저장된 아이디 복원
+    const savedId = localStorage.getItem('bb_saved_id');
+    const auto = localStorage.getItem('bb_auto_login') === '1';
+    if (savedId) { $('#email').value = savedId; $('#saveId').checked = true; }
+    $('#autoLogin').checked = auto;
+
     const u = await S.currentUser().catch(() => null);
-    if (u) enter(u);
+    if (u) {
+      if (auto) enter(u);
+      else { await S.signOut(); }        // 자동 로그인 꺼져 있으면 매번 다시 로그인
+    }
     setTimeout(iosInstallHint, 1500);
   })();
 
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault(); $('#loginErr').textContent = ''; $('#loginBtn').disabled = true;
     try {
-      const u = await S.signIn($('#email').value.trim(), $('#password').value);
+      const id = $('#email').value.trim();
+      const u = await S.signIn(id, $('#password').value);
       if (!u) throw new Error('로그인 실패');
+      if ($('#saveId').checked) localStorage.setItem('bb_saved_id', id);
+      else localStorage.removeItem('bb_saved_id');
+      localStorage.setItem('bb_auto_login', $('#autoLogin').checked ? '1' : '0');
       enter(u);
     } catch (err) { $('#loginErr').textContent = err.message || '로그인에 실패했습니다.'; }
     finally { $('#loginBtn').disabled = false; }
   });
   $('#logoutBtn').addEventListener('click', async () => {
     if (!confirm('로그아웃할까요?')) return;
+    localStorage.setItem('bb_auto_login', '0');
     await S.signOut(); location.reload();
   });
 
@@ -428,13 +442,34 @@
       html += `<div class="row ${t.is_work ? 'work' : ''}" data-id="${t.id}">
         <div class="ic">${income ? '💰' : C.iconOf(t.category, t.subcategory)}</div>
         <div class="tx"><div class="t1">${esc(t.merchant)}${t.installment ? ` <span class="tag">할부 ${t.installment}</span>` : ''}${t.is_work ? ' <span class="tag w">업무</span>' : ''}</div>
-          <div class="t2">${income ? (t.income_src || '수입') : catSelect(t)} · ${srcLabel(t.source)}</div></div>
+          <div class="t2">${income ? (t.income_src || '수입') : catSelect(t) + ' ' + budgetChip(t)} · ${srcLabel(t.source)}</div></div>
         <div class="amt num ${income ? 'in' : ''}">${income ? '+' : '-'}${fmt(t.amount)}</div></div>`;
     }
     $('#ledgerList').innerHTML = html || '<p class="desc" style="margin:0;padding:12px 0">내역이 없습니다.</p>';
   }
   const srcLabel = s => ({ samsung_card: '삼성카드', bank: '기업은행', sheet: '가계부 시트',
                            manual: '직접 입력', sms: '문자 자동' }[s] || s);
+
+  /** 생활비 포함/제외 칩 */
+  function budgetChip(t) {
+    if (t.kind !== 'expense' || !canEdit(t)) return '';
+    const on = isBudgetTx(t);
+    return `<button class="bchip ${on ? 'on' : ''}" data-bid="${t.id}" title="생활비 예산 포함 여부">${on ? '생활비 ✓' : '생활비 제외'}</button>`;
+  }
+
+  // 칩 클릭 → 생활비 포함/제외 전환
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('.bchip'); if (!b) return;
+    e.stopPropagation();
+    const id = +b.dataset.bid, t = TX.find(x => x.id === id); if (!t) return;
+    const on = isBudgetTx(t);
+    let memo = (t.memo || '').replace(/\[생활비\]|\[생활비제외\]/g, '').trim();
+    memo = (on ? '[생활비제외] ' : '[생활비] ') + memo;
+    await S.updateTx(id, { memo: memo.trim() });
+    t.memo = memo.trim();
+    applyPerson(); renderAll();
+    toast(on ? '생활비에서 제외했습니다' : '생활비에 포함했습니다');
+  });
 
   /** 분류 드롭다운 (언제든 몇 번이든 변경 가능) */
   function catSelect(t) {
@@ -673,7 +708,7 @@
       }
       html += `<div class="row" data-id="${t.id}"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
         <div class="tx"><div class="t1">${esc(t.merchant)}${t.source === 'sms' ? ' <span class="tag g">문자</span>' : ''}</div>
-          <div class="t2">${catSelect(t)} · ${ownerOf(t)}</div></div>
+          <div class="t2">${catSelect(t)} ${budgetChip(t)} · ${ownerOf(t)}</div></div>
         <div class="amt num">${fmt(t.amount)}</div>
         ${canEdit(t) ? '<button class="btn ghost sm bg-del" style="margin-left:8px">삭제</button>' : ''}</div>`;
     }

@@ -228,3 +228,8 @@ select.catsel{border:1px solid var(--line);border-radius:8px;padding:2px 20px 2p
   align-items:center;justify-content:center;padding-bottom:4px}
 .fab:active{transform:scale(.94)}
 .fab.hide{display:none}
+
+/* 생활비 포함/제외 칩 */
+.bchip{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:99px;
+  padding:2px 9px;font-size:10.5px;font-weight:800;cursor:pointer;vertical-align:1px}
+.bchip.on{background:#e9fbf7;border-color:#a7f3e4;color:#0d9488}
