@@ -34,6 +34,7 @@ create or replace function public.ingest_sms(
   p_amount   numeric,
   p_merchant text,
   p_owner    text default '김현우',
+  p_card     text default '',
   p_when     timestamptz default now()
 ) returns json
 language plpgsql security definer set search_path = public as $$
@@ -59,7 +60,7 @@ begin
   values
     ('expense', 'sms', (p_when at time zone 'Asia/Seoul')::date, p_merchant,
      p_amount, p_amount, 0, '미분류', '', false, coalesce(p_owner,'김현우'),
-     '문자 자동 등록', v_fp)
+     nullif(trim(p_card),'') || ' 문자 자동 등록', v_fp)
   on conflict (fingerprint) do nothing;
 
   get diagnostics v_cnt = row_count;
@@ -67,7 +68,8 @@ begin
 end $$;
 
 -- 로그인 없이(폰에서) 호출할 수 있도록 실행 권한 부여
-grant execute on function public.ingest_sms(text, numeric, text, text, timestamptz) to anon, authenticated;
+grant execute on function public.ingest_sms(text, numeric, text, text, text, timestamptz) to anon, authenticated;
+drop function if exists public.ingest_sms(text, numeric, text, text, timestamptz);
 
 -- 3) 확인 ------------------------------------------------------
 select key, value from public.settings order by key;
