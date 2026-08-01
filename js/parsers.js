@@ -71,13 +71,12 @@
         return { kind: 'transfer', category: '이체·용돈', subcategory: '본인 계좌 이체' };
 
       let src = '기타 수입';
-      if (/월급여/.test(t)) src = '근로소득 - 루트82';
-      else if (/루트\s*8\s*2|루트８２/.test(t)) src = '업무비용 환급 - 루트82';
-      else if (/플래니어/.test(t)) src = '근로소득 - 플래니어(전 직장)';
-      else if (/에스시홀딩|SC ?홀딩/.test(t)) src = '근로소득 - SC홀딩스';
-      else if (/브룩스|brooks/i.test(t)) src = '사업소득 - 브룩스글로벌';
-      else if (/DB손보|디비손해|손해보험|한화손|삼성화재/.test(t)) src = '보험금 환급 - DB손해보험';
-      else if (/결산|이자/.test(t)) src = '이자 수입';
+      if (/월급여|급여/.test(t)) src = '급여소득';
+      else if (/루트\s*8\s*2|루트８２/.test(t)) src = '업무비용 환급';
+      else if (/플래니어|에스시홀딩|SC ?홀딩/.test(t)) src = '급여소득';
+      else if (/브룩스|brooks/i.test(t)) src = '사업소득';
+      else if (/DB손보|디비손해|손해보험|한화손|삼성화재/.test(t)) src = '보험금 환급';
+      else if (/결산|이자/.test(t)) src = '이자 · 배당';
       return { kind: 'income', category: '수입', subcategory: src, income_src: src };
     }
 
