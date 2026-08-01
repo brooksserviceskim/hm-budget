@@ -1,0 +1,990 @@
+/* ============================================================
+   현우 미란 가계부 · 앱 로직 (모바일 우선)
+   ============================================================ */
+(function () {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+  const A = window.Analytics, C = window.Categorize, P = window.Parsers, S = window.Store;
+  const CFG = window.APP_CONFIG;
+
+  let USER = null, TX = [], CLAIMS = [], FIXED = [], CP = [], BENCH = null;
+  let charts = {}, seeding = false;
+  let months = [], curMonth = null;
+  let view = 'home', anRange = 3, gran = 'month';
+  let ledgerKind = 'expense', ledgerCat = '', ledgerLimit = 60, ledgerQ = '';
+
+  const fmt = A.won, man = A.man;
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const canWrite = () => USER && USER.role === 'owner';
+  const toast = m => {
+    $$('.toast').forEach(t => t.remove());
+    const d = document.createElement('div'); d.className = 'toast'; d.textContent = m;
+    document.body.appendChild(d); setTimeout(() => d.remove(), 2300);
+  };
+  let cpRange = 'cur', cpTopMode = 'amount', cpCat = '', cpQ = '', cpLimit = 60;
+  const VIEW_TITLE = { home: '가계부', ledger: '거래 내역', coupang: '쿠팡', fixed: '고정비', analysis: '분석',
+                       more: '더보기', upload: '명세서 업로드', income: '수입 입력',
+                       work: '업무비용 환급', info: '데이터 정보' };
+  const MONTH_VIEWS = new Set(['home', 'ledger']);
+
+  /* ================= 부팅 ================= */
+  (async function boot() {
+    BENCH = window.__BENCH__;
+    $('#benchSrc').href = BENCH.sourceUrl;
+    if (!S.ONLINE) {
+      $('#offlineNote').textContent =
+        '⚠ 오프라인 모드 · js/config.js 에 Supabase 정보를 넣으면 두 기기가 같은 데이터를 봅니다. 지금은 아이디에 "김현우" 또는 "홍미란" 을 넣으면 들어갈 수 있습니다.';
+      $('#password').required = false;
+      $('#email').type = 'text';
+    }
+    const u = await S.currentUser().catch(() => null);
+    if (u) enter(u);
+  })();
+
+  $('#loginForm').addEventListener('submit', async e => {
+    e.preventDefault(); $('#loginErr').textContent = ''; $('#loginBtn').disabled = true;
+    try {
+      const u = await S.signIn($('#email').value.trim(), $('#password').value);
+      if (!u) throw new Error('로그인 실패');
+      enter(u);
+    } catch (err) { $('#loginErr').textContent = err.message || '로그인에 실패했습니다.'; }
+    finally { $('#loginBtn').disabled = false; }
+  });
+  $('#logoutBtn').addEventListener('click', async () => {
+    if (!confirm('로그아웃할까요?')) return;
+    await S.signOut(); location.reload();
+  });
+
+  async function enter(u) {
+    USER = u;
+    $('#login').classList.add('hide');
+    $('#app').classList.remove('hide');
+    $('#userRole').textContent = canWrite() ? '김현우' : '홍미란';
+    $('#userRole').className = 'badge' + (canWrite() ? '' : ' view');
+    await reload();
+  }
+
+  async function reload() {
+    TX = await S.listTx();
+    if (!TX.length && canWrite() && !seeding && window.__SEED__) {
+      seeding = true; await loadSeed(null); seeding = false; return;
+    }
+    CLAIMS = await S.listClaims().catch(() => []);
+    FIXED = await S.listFixed().catch(() => []);
+    if (!FIXED.length && canWrite() && window.__SEED__?.fixed) {
+      await S.insertFixed(window.__SEED__.fixed);
+      FIXED = await S.listFixed();
+    }
+    CP = await S.listCoupang().catch(() => []);
+    if (!CP.length && canWrite() && window.__COUPANG__?.length) {
+      await S.insertCoupang(window.__COUPANG__);
+      CP = await S.listCoupang();
+    }
+    await migrate();
+    months = A.effectiveMonths(TX);
+    if (!curMonth || !months.includes(curMonth)) curMonth = months[months.length - 1] || null;
+    renderAll();
+  }
+
+  /* ---------- 데이터 정리 마이그레이션 ---------- */
+  async function migrate() {
+    if (!canWrite()) return;
+    let n = 0;
+    const L = P.BANK_LABEL || {};
+    for (const t of TX) {
+      const patch = {};
+      if (t.category !== '사업·투자' && C.BIZ_SUBS.includes(t.subcategory || '')) patch.category = '사업·투자';
+      if (t.source === 'bank' && t.kind === 'expense' && L[t.subcategory] && t.merchant !== L[t.subcategory])
+        patch.merchant = L[t.subcategory];
+      if (t.kind !== 'income') {
+        const nm = C.normalizeMerchant(patch.merchant || t.merchant);
+        if (nm !== (patch.merchant || t.merchant)) patch.merchant = nm;
+      }
+      if (Object.keys(patch).length) { await S.updateTx(t.id, patch); Object.assign(t, patch); n++; }
+    }
+    if (n) toast(`데이터 ${n}건 정리 완료`);
+  }
+
+  /* ================= 네비게이션 ================= */
+  $('#tabbar').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return; go(b.dataset.v);
+  });
+  document.addEventListener('click', e => {
+    const g = e.target.closest('[data-go]'); if (!g) return; go(g.dataset.go);
+  });
+  function go(v) {
+    view = v;
+    $$('main > section').forEach(s => s.classList.add('hide'));
+    $('#v-' + v)?.classList.remove('hide');
+    $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    if (!['home', 'ledger', 'coupang', 'fixed', 'analysis', 'more'].includes(v))
+      $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === 'more'));
+    $('#viewTitle').textContent = VIEW_TITLE[v] || '가계부';
+    $('#mnav').classList.toggle('hide', !MONTH_VIEWS.has(v));
+    window.scrollTo(0, 0);
+    renderAll();
+  }
+
+  $('#mPrev').addEventListener('click', () => { const i = months.indexOf(curMonth); if (i > 0) { curMonth = months[i - 1]; renderAll(); } });
+  $('#mNext').addEventListener('click', () => { const i = months.indexOf(curMonth); if (i < months.length - 1) { curMonth = months[i + 1]; renderAll(); } });
+
+  /* ================= 렌더 ================= */
+  function monthTx(m) { return TX.filter(t => t.tx_date.slice(0, 7) === m); }
+
+  function renderAll() {
+    if (!TX.length) return;
+    renderMonthNav();
+    if (view === 'home') renderHome();
+    if (view === 'ledger') renderLedger();
+    if (view === 'coupang') renderCoupang();
+    if (view === 'fixed') renderFixedTab();
+    if (view === 'analysis') renderAnalysis();
+    if (view === 'income') renderIncome();
+    if (view === 'work') renderWork();
+    if (view === 'info') renderInfo();
+  }
+
+  function renderMonthNav() {
+    if (!curMonth) return;
+    const i = months.indexOf(curMonth);
+    $('#mPrev').disabled = i <= 0;
+    $('#mNext').disabled = i >= months.length - 1;
+    const [y, m] = curMonth.split('-');
+    $('#mLabel').textContent = `${+m}월`;
+    const sub = monthTx(curMonth);
+    $('#mExp').textContent = fmt(sub.filter(A.isHouseholdExpense).reduce((a, t) => a + t.amount, 0));
+    $('#mInc').textContent = fmt(sub.filter(A.isIncome).reduce((a, t) => a + t.amount, 0));
+  }
+
+  /* ---------- 홈 ---------- */
+  function renderHome() {
+    const sub = monthTx(curMonth);
+    const exp = sub.filter(A.isHouseholdExpense).reduce((a, t) => a + t.amount, 0);
+    const inc = sub.filter(A.isIncome).reduce((a, t) => a + t.amount, 0);
+    const work = sub.filter(t => t.is_work).reduce((a, t) => a + t.amount, 0);
+    const net = inc - exp;
+    const prevM = months[months.indexOf(curMonth) - 1];
+    const prevExp = prevM ? monthTx(prevM).filter(A.isHouseholdExpense).reduce((a, t) => a + t.amount, 0) : 0;
+
+    $('#heroNet').textContent = fmt(net);
+    $('#heroNet').style.color = net < 0 ? 'var(--expense)' : 'var(--ink)';
+    $('#heroSub').innerHTML = inc > 0
+      ? `수입의 <b>${Math.max(0, Math.round(net / inc * 100))}%</b> 가 남았습니다`
+      : '이 달은 수입 기록이 없습니다';
+    $('#heroBar').style.width = Math.min(100, inc > 0 ? exp / inc * 100 : 100) + '%';
+    $('#heroBar').style.background = (inc > 0 && exp / inc > 0.9) ? 'var(--expense)' : 'var(--accent)';
+    $('#heroL').textContent = '지출 ' + fmt(exp);
+    $('#heroR').textContent = '수입 ' + fmt(inc);
+
+    const PL = A.planSummary(FIXED);
+    const stat = (n, v, d, color) => `<div class="stat">
+      <div class="n"><i style="background:${color}"></i>${n}</div>
+      <div class="v num">${v}</div>${d ? `<div class="d ${d.cls || ''}">${d.txt}</div>` : ''}</div>`;
+    const diff = prevExp ? exp - prevExp : null;
+    $('#homeStats').innerHTML =
+      stat('이번 달 지출', fmt(exp), diff === null ? { txt: '비교할 지난달 없음', cls: 'flat' } :
+        { txt: `지난달보다 ${diff > 0 ? '▲' : '▼'} ${man(Math.abs(diff))}`, cls: diff > 0 ? 'up' : 'down' }, 'var(--ink)') +
+      stat('고정비', fmt(PL.total), { txt: `매월 ${man(PL.monthlyTotal)}${PL.instTotal ? ` + 할부 ${man(PL.instTotal)}` : ''}`, cls: 'flat' }, 'var(--purple)') +
+      stat('업무비용', fmt(work), { txt: '가계 지출에서 제외', cls: 'flat' }, 'var(--warn)') +
+      stat('사업 투자', fmt(sub.filter(t => A.isHouseholdExpense(t) && t.category === '사업·투자').reduce((a, t) => a + t.amount, 0)),
+        { txt: '평균 비교 제외', cls: 'flat' }, '#7c3aed');
+
+    // 도넛 + 범례
+    const cats = A.byCategory(sub);
+    $('#homeCatDesc').textContent = `${cats.length}개 분류 · 합계 ${fmt(exp)}`;
+    drawChart('chDonut', {
+      type: 'doughnut',
+      data: { labels: cats.map(c => c.category),
+              datasets: [{ data: cats.map(c => c.amount),
+                           backgroundColor: cats.map(c => C.CAT_COLORS[c.category] || '#94a3b8'),
+                           borderWidth: 3, borderColor: '#fff' }] },
+      options: { maintainAspectRatio: false, cutout: '66%',
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: c => `${c.label} ${fmt(c.parsed)} (${(c.parsed / exp * 100).toFixed(0)}%)` } } } }
+    });
+    $('#homeLegend').innerHTML = cats.slice(0, 8).map(c => `
+      <div class="lg"><span class="dot" style="background:${C.CAT_COLORS[c.category] || '#94a3b8'}"></span>
+        <span class="nm">${c.category}</span>
+        <span class="pc">${(c.amount / exp * 100).toFixed(0)}%</span>
+        <span class="vl num">${fmt(c.amount)}</span></div>`).join('');
+
+    // 2인 가구 비교 (최근 6개월 평균)
+    const M = A.monthlyAverage(TX, 6);
+    const myTotal = C.BENCH_CATEGORIES.reduce((a, k) => a + (M.avgByCategory[k] || 0), 0);
+    const pct = Math.round((myTotal / BENCH.totalConsumption - 1) * 100);
+    $('#benchDesc').innerHTML =
+      `최근 ${M.months}개월 월평균 <b>${fmt(myTotal)}</b> · 2인 가구 평균 <b>${fmt(BENCH.totalConsumption)}</b> ` +
+      `<span class="${pct > 0 ? 'up' : 'down'}">(${pct > 0 ? '+' : ''}${pct}%)</span>`;
+    const maxV = Math.max(1, ...C.BENCH_CATEGORIES.map(k => Math.max(M.avgByCategory[k] || 0, BENCH.items[k])));
+    $('#benchBars').innerHTML = C.BENCH_CATEGORIES.map(k => {
+      const me = M.avgByCategory[k] || 0, av = BENCH.items[k], d = me - av;
+      const cls = d > av * .15 ? 'up' : d < -av * .15 ? 'down' : 'flat';
+      return `<div class="bench">
+        <div class="hd"><span class="nm">${k}</span>
+          <span class="vl num">${fmt(me)}</span>
+          <span class="dl ${cls}">${d >= 0 ? '+' : ''}${man(d)}</span></div>
+        <div class="track">
+          <div class="me" style="width:${Math.min(100, me / maxV * 100)}%;background:${C.CAT_COLORS[k]}"></div>
+          <div class="avg" style="left:${av / maxV * 100}%"></div></div></div>`;
+    }).join('');
+
+    // 진단
+    const { advice, totalSave } = A.buildAdvice(TX, BENCH);
+    $('#adviceHead').innerHTML = totalSave > 0
+      ? `제안을 다 실행하면 <b style="color:var(--income)">월 ${man(totalSave)} · 연 ${man(totalSave * 12)}</b> 절약할 수 있습니다.`
+      : '최근 6개월 기준 진단입니다.';
+    $('#adviceList').innerHTML = advice.map(a => `
+      <div class="diag ${a.level}"><h4>${a.title}</h4>
+        <p>${a.body}${a.saveLabel ? ` <span class="save">→ ${a.saveLabel}</span>` : ''}</p></div>`).join('');
+
+    // 많이 쓴 곳
+    $('#topList').innerHTML = A.topMerchants(sub, 10).map(m => `
+      <div class="row"><div class="ic">${C.iconOf(m.category, '')}</div>
+        <div class="tx"><div class="t1">${esc(m.merchant)}</div>
+          <div class="t2">${m.category} · ${m.count}건</div></div>
+        <div class="amt num">${fmt(m.amount)}</div></div>`).join('')
+      || '<p class="desc" style="margin:0">이 달 지출 기록이 없습니다.</p>';
+  }
+
+  /* ---------- 가계부(거래 내역) ---------- */
+  $('#ledgerKind').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#ledgerKind button').forEach(x => x.classList.toggle('on', x === b));
+    ledgerKind = b.dataset.k; ledgerLimit = 60; renderLedger();
+  });
+  $('#ledgerSearchBtn').addEventListener('click', () => {
+    const w = $('#ledgerSearchWrap'); w.classList.toggle('hide');
+    if (!w.classList.contains('hide')) $('#fSearch').focus();
+  });
+  $('#fSearch').addEventListener('input', e => { ledgerQ = e.target.value.trim(); ledgerLimit = 60; renderLedger(); });
+  $('#ledgerCats').addEventListener('click', e => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    ledgerCat = c.dataset.c; ledgerLimit = 60; renderLedger();
+  });
+  $('#ledgerMore').addEventListener('click', () => { ledgerLimit += 100; renderLedger(); });
+
+  function renderLedger() {
+    const base = monthTx(curMonth);
+    const cats = [...new Set(base.filter(t => t.kind === 'expense').map(t => t.category))]
+      .map(c => ({ c, v: base.filter(t => t.category === c && A.isHouseholdExpense(t)).reduce((a, t) => a + t.amount, 0) }))
+      .sort((a, b) => b.v - a.v);
+    $('#ledgerCats').innerHTML = `<button class="chip ${ledgerCat === '' ? 'on' : ''}" data-c="">전체</button>` +
+      cats.map(o => `<button class="chip ${ledgerCat === o.c ? 'on' : ''}" data-c="${o.c}">${o.c}</button>`).join('');
+
+    let rows = base.filter(t => {
+      if (ledgerKind && t.kind !== ledgerKind) return false;
+      if (ledgerCat && t.category !== ledgerCat) return false;
+      if (ledgerQ && !t.merchant.includes(ledgerQ)) return false;
+      return true;
+    }).sort((a, b) => a.tx_date < b.tx_date ? 1 : (a.tx_date > b.tx_date ? -1 : (b.amount - a.amount)));
+
+    const total = rows.length;
+    rows = rows.slice(0, ledgerLimit);
+    $('#ledgerMore').classList.toggle('hide', total <= ledgerLimit);
+
+    const W = ['일', '월', '화', '수', '목', '금', '토'];
+    let html = '', lastDay = '';
+    for (const t of rows) {
+      if (t.tx_date !== lastDay) {
+        lastDay = t.tx_date;
+        const d = new Date(t.tx_date + 'T00:00:00');
+        const dayTot = rows.filter(x => x.tx_date === t.tx_date && A.isHouseholdExpense(x)).reduce((a, x) => a + x.amount, 0);
+        html += `<div class="day-sep"><span>${d.getDate()}일 ${W[d.getDay()]}요일</span><span class="ln"></span>
+          <span class="num">${dayTot ? '-' + fmt(dayTot) : ''}</span></div>`;
+      }
+      const income = t.kind === 'income';
+      html += `<div class="row ${t.is_work ? 'work' : ''}" data-id="${t.id}">
+        <div class="ic">${income ? '💰' : C.iconOf(t.category, t.subcategory)}</div>
+        <div class="tx"><div class="t1">${esc(t.merchant)}${t.installment ? ` <span class="tag">할부 ${t.installment}</span>` : ''}${t.is_work ? ' <span class="tag w">업무</span>' : ''}</div>
+          <div class="t2">${income ? (t.income_src || '수입') : (t.subcategory || t.category)} · ${srcLabel(t.source)}</div></div>
+        <div class="amt num ${income ? 'in' : ''}">${income ? '+' : '-'}${fmt(t.amount)}</div></div>`;
+    }
+    $('#ledgerList').innerHTML = html || '<p class="desc" style="margin:0;padding:12px 0">내역이 없습니다.</p>';
+  }
+  const srcLabel = s => ({ samsung_card: '삼성카드', bank: '기업은행', sheet: '가계부 시트', manual: '직접 입력' }[s] || s);
+
+  // 거래 상세 (탭하면 카테고리/업무 변경)
+  $('#ledgerList').addEventListener('click', async e => {
+    const r = e.target.closest('.row'); if (!r || !canWrite()) return;
+    const t = TX.find(x => x.id === +r.dataset.id); if (!t || t.kind === 'income') return;
+    const cats = C.CATEGORIES;
+    const cur = cats.indexOf(t.category);
+    const ans = prompt(
+      `${t.merchant}\n${fmt(t.amount)} · ${t.tx_date}\n\n` +
+      `분류를 바꾸려면 번호를 입력하세요.\n` +
+      cats.map((c, i) => `${i + 1}. ${c}`).join('\n') +
+      `\n\n0 = 업무비용 ${t.is_work ? '해제' : '표시'}`, String(cur + 1));
+    if (ans === null) return;
+    const n = parseInt(ans, 10);
+    if (n === 0) { await S.updateTx(t.id, { is_work: !t.is_work }); t.is_work = !t.is_work; toast(t.is_work ? '업무비용으로 제외' : '가계 지출로 복귀'); }
+    else if (n >= 1 && n <= cats.length) { await S.updateTx(t.id, { category: cats[n - 1] }); t.category = cats[n - 1]; toast('분류 변경됨'); }
+    renderLedger();
+  });
+
+  /* ================= 쿠팡 ================= */
+  const pad2 = n => String(n).padStart(2, '0');
+  const ymShift = (ym, k) => { const [y, m] = ym.split('-').map(Number);
+    const d = new Date(y, m - 1 + k, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+  const todayYM = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+  const cpMonths = () => [...new Set(CP.map(r => r.order_date.slice(0, 7)))].sort();
+
+  function cpScoped() {
+    if (cpRange === 'cur')  return CP.filter(r => r.order_date.slice(0, 7) === todayYM());
+    if (cpRange === 'prev') return CP.filter(r => r.order_date.slice(0, 7) === ymShift(todayYM(), -1));
+    if (cpRange === 'custom') {
+      const f = $('#cpFrom').value, t = $('#cpTo').value;
+      return CP.filter(r => (!f || r.order_date >= f) && (!t || r.order_date <= t));
+    }
+    if (!cpRange) return CP;
+    const keys = new Set(cpMonths().slice(-cpRange));
+    return CP.filter(r => keys.has(r.order_date.slice(0, 7)));
+  }
+
+  $('#cpRange').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#cpRange button').forEach(x => x.classList.toggle('on', x === b));
+    cpRange = /^\d+$/.test(b.dataset.r) ? +b.dataset.r : b.dataset.r;
+    $('#cpCustom').classList.toggle('hide', cpRange !== 'custom');
+    if (cpRange === 'custom' && !$('#cpFrom').value) {
+      const ms = cpMonths();
+      $('#cpFrom').value = (ms[0] || todayYM()) + '-01';
+      $('#cpTo').value = new Date().toISOString().slice(0, 10);
+    }
+    cpLimit = 60; renderCoupang();
+  });
+  ['#cpFrom', '#cpTo'].forEach(sel => $(sel).addEventListener('change', () => { cpLimit = 60; renderCoupang(); }));
+  $('#cpTopMode').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#cpTopMode button').forEach(x => x.classList.toggle('on', x === b));
+    cpTopMode = b.dataset.m; renderCoupang();
+  });
+  $('#cpSearch').addEventListener('input', e => { cpQ = e.target.value.trim(); cpLimit = 60; renderCpList(); });
+  $('#cpCats').addEventListener('click', e => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    cpCat = c.dataset.c; cpLimit = 60; renderCoupang();
+  });
+  $('#cpMore').addEventListener('click', () => { cpLimit += 100; renderCpList(); });
+
+  function renderCoupang() {
+    if (!CP.length) {
+      $('#cpTotal').textContent = '—';
+      $('#cpSub').textContent = '쿠팡 주문 데이터가 없습니다. 더보기 → 명세서 업로드에서 CSV를 올려주세요.';
+      return;
+    }
+    const rows = cpScoped();
+    const ms = [...new Set(rows.map(r => r.order_date.slice(0, 7)))].sort();
+    const total = rows.reduce((a, r) => a + (+r.price || 0), 0);
+    const nMon = Math.max(1, ms.length);
+    const cmp = $('#cpCompare');
+
+    /* ---- 헤더 ---- */
+    if (cpRange === 'cur' || cpRange === 'prev') {
+      const ym = cpRange === 'cur' ? todayYM() : ymShift(todayYM(), -1);
+      const [yy, mm] = ym.split('-');
+      $('#cpPeriod').textContent = `${yy}년 ${+mm}월 쿠팡 주문`;
+      $('#cpTotal').textContent = fmt(total);
+      if (cpRange === 'cur') {
+        const today = new Date().getDate();
+        const prevYm = ymShift(ym, -1);
+        const prevAll = CP.filter(r => r.order_date.slice(0, 7) === prevYm);
+        const prevSame = prevAll.filter(r => +r.order_date.slice(8, 10) <= today).reduce((a, r) => a + (+r.price || 0), 0);
+        const prevTot = prevAll.reduce((a, r) => a + (+r.price || 0), 0);
+        const diff = total - prevSame;
+        $('#cpSub').innerHTML = rows.length ? `${rows.length}건 · ${today}일까지 누적` : '아직 이번 달 주문이 없습니다';
+        cmp.classList.remove('hide');
+        const max = Math.max(total, prevTot, 1);
+        $('#cpBar').style.width = Math.min(100, total / max * 100) + '%';
+        $('#cpBar').style.background = diff > 0 ? 'var(--expense)' : 'var(--accent)';
+        $('#cpAvgMark').style.left = (prevTot / max * 100) + '%';
+        $('#cpCmpL').innerHTML = prevAll.length
+          ? `지난달 ${today}일까지 ${fmt(prevSame)} · <b class="${diff > 0 ? 'up' : 'down'}">${diff >= 0 ? '+' : ''}${man(diff)}</b>`
+          : '지난달 비교 데이터 없음';
+        $('#cpCmpR').textContent = prevTot ? `지난달 전체 ${fmt(prevTot)}` : '';
+      } else {
+        const dd = new Date(+yy, +mm, 0).getDate();
+        $('#cpSub').innerHTML = `${rows.length}건 · 하루 평균 ${fmt(total / dd)}`;
+        cmp.classList.add('hide');
+      }
+    } else {
+      cmp.classList.add('hide');
+      if (cpRange === 'custom') {
+        const f = $('#cpFrom').value || (ms[0] || ''), t = $('#cpTo').value || (ms[ms.length - 1] || '');
+        const days = Math.max(1, Math.round((new Date(t) - new Date(f)) / 86400000) + 1);
+        $('#cpPeriod').textContent = `${f} ~ ${t}`;
+        $('#cpTotal').textContent = fmt(total);
+        $('#cpSub').innerHTML = `${rows.length.toLocaleString()}건 · ${days}일 · 하루 평균 <b>${fmt(total / days)}</b>`;
+      } else {
+        $('#cpPeriod').textContent = `${ms[0] || ''} ~ ${ms[ms.length - 1] || ''} 쿠팡 주문`;
+        $('#cpTotal').textContent = fmt(total);
+        $('#cpSub').innerHTML = `${rows.length.toLocaleString()}건 · 월평균 <b>${fmt(total / nMon)}</b>`;
+      }
+    }
+
+    renderCpMonthChart();
+    renderCpMatch();
+
+    /* ---- 데이터 없음 ---- */
+    if (!rows.length) {
+      $('#cpStats').innerHTML = '';
+      $('#cpCatDesc').textContent = '이 기간에 주문이 없습니다.';
+      $('#cpLegend').innerHTML = ''; $('#cpTop').innerHTML = ''; $('#cpCats').innerHTML = '';
+      drawChart('chCpDonut', { type: 'doughnut', data: { labels: [], datasets: [{ data: [] }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+      renderCpList();
+      return;
+    }
+
+    /* ---- 통계 ---- */
+    const qtyTot = rows.reduce((a, r) => a + (+r.qty || 1), 0);
+    const byCat = new Map();
+    for (const r of rows) byCat.set(r.category, (byCat.get(r.category) || 0) + (+r.price || 0));
+    const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+    const stat = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#cpStats').innerHTML =
+      stat('월평균', fmt(total / nMon), `${(rows.length / nMon).toFixed(0)}건/월`, 'var(--ink)') +
+      stat('건당 평균', fmt(total / rows.length), `총 ${qtyTot.toLocaleString()}개 구매`, 'var(--accent)') +
+      stat('가장 많이 쓴 곳', cats[0][0], fmt(cats[0][1]), C.COUPANG_COLORS[cats[0][0]] || '#94a3b8') +
+      stat('최고가 상품', fmt(Math.max(0, ...rows.map(r => +r.price || 0))), '단일 주문 기준', 'var(--warn)');
+
+    /* ---- 도넛 ---- */
+    $('#cpCatDesc').textContent = `${cats.length}개 분류 · 합계 ${fmt(total)}`;
+    drawChart('chCpDonut', {
+      type: 'doughnut',
+      data: { labels: cats.map(c => c[0]),
+              datasets: [{ data: cats.map(c => c[1]),
+                           backgroundColor: cats.map(c => C.COUPANG_COLORS[c[0]] || '#94a3b8'),
+                           borderWidth: 3, borderColor: '#fff' }] },
+      options: { maintainAspectRatio: false, cutout: '66%',
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: c => `${c.label} ${fmt(c.parsed)} (${(c.parsed / total * 100).toFixed(0)}%)` } } } }
+    });
+    $('#cpLegend').innerHTML = cats.map(c => {
+      const cnt = rows.filter(r => r.category === c[0]).length;
+      return `<div class="lg"><span class="dot" style="background:${C.COUPANG_COLORS[c[0]] || '#94a3b8'}"></span>
+        <span class="nm">${C.COUPANG_ICON[c[0]] || '📦'} ${c[0]}</span>
+        <span class="pc">${(c[1] / total * 100).toFixed(0)}% · ${cnt}건</span>
+        <span class="vl num">${fmt(c[1])}</span></div>`;
+    }).join('');
+
+    /* ---- 많이 산 상품 ---- */
+    const agg = new Map();
+    for (const r of rows) {
+      const key = r.name.replace(/,\s*\d+개$|,\s*\d+세트$/, '').slice(0, 60);
+      const o = agg.get(key) || { name: key, category: r.category, amount: 0, qty: 0, count: 0 };
+      o.amount += +r.price || 0; o.qty += +r.qty || 1; o.count++;
+      agg.set(key, o);
+    }
+    const sorted = [...agg.values()].sort((a, b) => b[cpTopMode] - a[cpTopMode]).slice(0, 15);
+    const unit = { amount: '', qty: '개', count: '회' }[cpTopMode];
+    $('#cpTop').innerHTML = sorted.map((m, i) => `
+      <div class="row"><div class="ic">${C.COUPANG_ICON[m.category] || '📦'}</div>
+        <div class="tx"><div class="t1">${i + 1}. ${esc(m.name)}</div>
+          <div class="t2">${m.category} · ${m.count}회 · ${m.qty}개</div></div>
+        <div class="amt num">${cpTopMode === 'amount' ? fmt(m.amount) : m[cpTopMode] + unit}</div></div>`).join('');
+
+    /* ---- 분류 칩 ---- */
+    $('#cpCats').innerHTML = `<button class="chip ${cpCat === '' ? 'on' : ''}" data-c="">전체</button>` +
+      cats.map(c => `<button class="chip ${cpCat === c[0] ? 'on' : ''}" data-c="${c[0]}">${C.COUPANG_ICON[c[0]] || ''} ${c[0]}</button>`).join('');
+    renderCpList();
+  }
+
+  function renderCpMonthChart() {
+    const all = cpMonths(), keep = all.slice(-18);
+    const inScope = new Set(cpScoped().map(r => r.order_date.slice(0, 7)));
+    drawChart('chCpMonth', {
+      type: 'bar',
+      data: { labels: keep.map(m => m.slice(2)),
+        datasets: [{ label: '쿠팡 지출', borderRadius: 5,
+          backgroundColor: keep.map(m => inScope.has(m) ? '#2563eb' : '#cbd5e1'),
+          data: keep.map(m => CP.filter(r => r.order_date.slice(0, 7) === m).reduce((a, r) => a + (+r.price || 0), 0)) }] },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmt(c.parsed.y) } } },
+        scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
+    });
+  }
+
+  function renderCpMatch() {
+    const cardByM = new Map();
+    for (const t of TX) {
+      if (t.kind !== 'expense' || t.source !== 'samsung_card') continue;
+      if (!/쿠팡/.test(t.merchant) || /와우|이츠/.test(t.merchant)) continue;
+      const m = t.tx_date.slice(0, 7);
+      cardByM.set(m, (cardByM.get(m) || 0) + t.amount);
+    }
+    const mset = [...new Set([...cpMonths(), ...cardByM.keys()])].sort().reverse().slice(0, 14);
+    $('#tblCpMatch tbody').innerHTML = mset.map(m => {
+      const o = CP.filter(r => r.order_date.slice(0, 7) === m).reduce((a, r) => a + (+r.price || 0), 0);
+      const c = cardByM.get(m) || 0, d = o - c;
+      return `<tr><td>${m}</td><td class="num">${o ? fmt(o) : '—'}</td>
+        <td class="num">${c ? fmt(c) : '—'}</td>
+        <td class="num ${Math.abs(d) < 20000 ? 'flat' : (d > 0 ? 'up' : 'down')}">${(o && c) ? (d >= 0 ? '+' : '') + man(d) : '—'}</td></tr>`;
+    }).join('');
+  }
+
+  function renderCpList() {
+    let rows = cpScoped().filter(r => {
+      if (cpCat && r.category !== cpCat) return false;
+      if (cpQ && !r.name.includes(cpQ)) return false;
+      return true;
+    }).sort((a, b) => a.order_date < b.order_date ? 1 : -1);
+    const total = rows.length;
+    rows = rows.slice(0, cpLimit);
+    $('#cpMore').classList.toggle('hide', total <= cpLimit);
+
+    let html = '', last = '';
+    for (const r of rows) {
+      if (r.order_date !== last) {
+        last = r.order_date;
+        const day = cpScoped().filter(x => x.order_date === r.order_date).reduce((a, x) => a + (+x.price || 0), 0);
+        html += `<div class="day-sep"><span>${r.order_date}</span><span class="ln"></span><span class="num">${fmt(day)}</span></div>`;
+      }
+      html += `<div class="row"><div class="ic">${C.COUPANG_ICON[r.category] || '📦'}</div>
+        <div class="tx"><div class="t1">${esc(r.name)}</div>
+          <div class="t2">${r.category}${(+r.qty > 1) ? ` · ${r.qty}개` : ''}</div></div>
+        <div class="amt num">${fmt(+r.price || 0)}</div></div>`;
+    }
+    $('#cpList').innerHTML = html || '<p class="desc" style="margin:0;padding:10px 0">해당하는 주문이 없습니다.</p>';
+  }
+
+  /* ---------- 고정비 ---------- */
+  const FX_CYCLES = ['매월', '격월', '분기', '반기', '연'];
+  function renderFixedTab() {
+    const PL = A.planSummary(FIXED), ed = canWrite();
+    const inc = A.incomeAvg(TX, /./, 6);
+    const vsInc = inc > 0 ? PL.total / inc * 100 : null;
+
+    $('#fxTotal').textContent = fmt(PL.total);
+    $('#fxSub').innerHTML = `매월 ${fmt(PL.monthlyTotal)}` +
+      (PL.instTotal ? ` + 일시 할부 ${fmt(PL.instTotal)}` : '') +
+      (vsInc !== null ? ` · 수입의 <b>${vsInc.toFixed(0)}%</b>` : '');
+
+    const stat = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#fxStats').innerHTML =
+      stat('매월 고정비', fmt(PL.monthlyTotal), `${PL.monthly.length}개 항목`, 'var(--ink)') +
+      stat('일시 할부', fmt(PL.instTotal), PL.maxLeftM ? `최대 ${PL.maxLeftM}개월 · 잔액 ${man(PL.instLeft)}` : '진행 중 없음', 'var(--warn)') +
+      stat('할부 종료 후', fmt(PL.monthlyTotal), PL.instTotal ? `월 ${man(PL.instTotal)} 줄어듭니다` : '변동 없음', 'var(--income)') +
+      (PL.done.length ? stat('완납', fmt(PL.doneTotal), `${PL.done.length}건 종료됨`, 'var(--accent)') : '');
+
+    drawChart('chFxCat', {
+      type: 'doughnut',
+      data: { labels: PL.byCat.map(c => c[0]),
+              datasets: [{ data: PL.byCat.map(c => c[1]),
+                           backgroundColor: PL.byCat.map(c => C.CAT_COLORS[c[0]] || '#94a3b8'),
+                           borderWidth: 3, borderColor: '#fff' }] },
+      options: { maintainAspectRatio: false, cutout: '66%',
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.label} ${fmt(c.parsed)}` } } } }
+    });
+    const tot = PL.byCat.reduce((a, c) => a + c[1], 0) || 1;
+    $('#fxLegend').innerHTML = PL.byCat.map(c => `
+      <div class="lg"><span class="dot" style="background:${C.CAT_COLORS[c[0]] || '#94a3b8'}"></span>
+        <span class="nm">${c[0]}</span><span class="pc">${(c[1] / tot * 100).toFixed(0)}%</span>
+        <span class="vl num">${fmt(c[1])}</span></div>`).join('');
+
+    const cats = C.CATEGORIES.filter(c => c !== '미분류');
+    $('#fxCat').innerHTML = cats.map(c => `<option>${c}</option>`).join('');
+
+    $('#tblFx tbody').innerHTML = FIXED.map(f => {
+      const per = (+f.amount || 0) / (A.CYCLE_DIV[f.cycle] || 1);
+      const done = A.instDone(f);
+      const inp = (cls, val, type, w) => `<input class="pill ${cls}" type="${type}" value="${esc(val ?? '')}" style="padding:5px 8px;font-size:12.5px;width:${w};border-radius:9px">`;
+      const sel = (cls, opts, val) => `<select class="pill ${cls}" style="padding:5px 22px 5px 8px;font-size:12.5px;border-radius:9px">${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+      if (!ed) return `<tr class="${done ? 'off' : ''}"><td>${f.active === false ? '중지' : '사용'}</td><td>${esc(f.name)}</td>
+        <td class="num">${fmt(+f.amount || 0)}</td><td>${f.cycle}</td><td>${f.kind}</td>
+        <td>${f.kind === '할부' ? `${f.inst_now || 0}/${f.inst_total || 0}` : '—'}</td>
+        <td><span class="tag">${f.category}</span></td><td>${esc(f.method || '')}</td>
+        <td>${esc(f.memo || '')}</td><td class="num"><b>${fmt(per)}</b></td><td></td></tr>`;
+      return `<tr data-id="${f.id}" class="${(f.active === false || done) ? 'off' : ''}">
+        <td><input type="checkbox" class="fx-active" ${f.active === false ? '' : 'checked'}></td>
+        <td>${inp('fx-name', f.name, 'text', '150px')}</td>
+        <td class="num">${inp('fx-amt', +f.amount || 0, 'number', '100px')}</td>
+        <td>${sel('fx-cycle', FX_CYCLES, f.cycle)}</td>
+        <td>${sel('fx-kind', ['고정', '할부'], f.kind)}</td>
+        <td>${f.kind === '할부'
+              ? `${inp('fx-in', f.inst_now ?? '', 'number', '42px')}/${inp('fx-it', f.inst_total ?? '', 'number', '42px')}` +
+                (done ? ' <span class="tag g">완납</span>' : ' <button class="btn ghost sm fx-plus" style="padding:3px 7px">+1</button>')
+              : '<span style="color:#cbd5e1">—</span>'}</td>
+        <td>${sel('fx-cat', cats, f.category)}</td>
+        <td>${inp('fx-method', f.method, 'text', '105px')}</td>
+        <td>${inp('fx-memo', f.memo, 'text', '160px')}</td>
+        <td class="num"><b>${fmt(per)}</b></td>
+        <td><button class="btn ghost sm fx-del">삭제</button></td></tr>`;
+    }).join('') || '<tr><td colspan="11" style="color:var(--muted)">등록된 고정비가 없습니다.</td></tr>';
+
+    // 자동 감지
+    const recur = A.recurringMerchants(TX, 6, 4);
+    const keys = new Set(A.effectiveMonths(TX).slice(-6));
+    const agg = new Map();
+    for (const t of TX) {
+      if (!A.isHouseholdExpense(t) || !recur.has(t.merchant)) continue;
+      if (!keys.has(t.tx_date.slice(0, 7))) continue;
+      const o = agg.get(t.merchant) || { merchant: t.merchant, category: t.category, sub: t.subcategory, amount: 0, ms: new Set() };
+      o.amount += t.amount; o.ms.add(t.tx_date.slice(0, 7)); agg.set(t.merchant, o);
+    }
+    const known = FIXED.map(f => (f.match || f.name));
+    $('#tblFxDetect tbody').innerHTML = [...agg.values()]
+      .filter(o => !known.some(k => k && (o.merchant.includes(k) || k.includes(o.merchant))))
+      .sort((a, b) => b.amount - a.amount)
+      .map(o => `<tr data-m="${esc(o.merchant)}" data-c="${esc(o.category)}" data-a="${Math.round(o.amount / Math.max(1, keys.size))}">
+        <td>${esc(o.merchant)}</td><td><span class="tag">${o.category}</span></td>
+        <td class="num">${fmt(o.amount / Math.max(1, keys.size))}</td><td>${o.ms.size}/${keys.size}개월</td>
+        <td>${ed ? '<button class="btn ghost sm fx-add">추가</button>' : ''}</td></tr>`).join('')
+      || '<tr><td colspan="5" style="color:var(--muted)">새로 감지된 반복 결제가 없습니다.</td></tr>';
+  }
+
+  $('#tblFx').addEventListener('change', async e => {
+    const tr = e.target.closest('tr'); if (!tr?.dataset.id) return;
+    const id = +tr.dataset.id, g = c => tr.querySelector('.' + c);
+    await S.updateFixed(id, {
+      name: g('fx-name').value, amount: +g('fx-amt').value || 0,
+      cycle: g('fx-cycle').value, kind: g('fx-kind').value,
+      category: g('fx-cat').value, method: g('fx-method').value,
+      memo: g('fx-memo').value, active: g('fx-active').checked,
+      inst_now: g('fx-in') ? (+g('fx-in').value || null) : null,
+      inst_total: g('fx-it') ? (+g('fx-it').value || null) : null
+    });
+    FIXED = await S.listFixed(); renderFixedTab(); toast('저장됨');
+  });
+  $('#tblFx').addEventListener('click', async e => {
+    const tr = e.target.closest('tr'); if (!tr?.dataset.id) return;
+    const id = +tr.dataset.id;
+    if (e.target.classList.contains('fx-plus')) {
+      const f = FIXED.find(x => x.id === id);
+      await S.updateFixed(id, { inst_now: (+f.inst_now || 0) + 1 });
+      FIXED = await S.listFixed(); renderFixedTab();
+      const nf = FIXED.find(x => x.id === id);
+      toast(A.instDone(nf) ? `${nf.name} 완납! 월 ${man(+nf.amount)} 절감` : `${nf.name} ${nf.inst_now}/${nf.inst_total}회차`);
+    } else if (e.target.classList.contains('fx-del')) {
+      if (!confirm('삭제할까요?')) return;
+      await S.deleteFixed(id); FIXED = await S.listFixed(); renderFixedTab(); toast('삭제됨');
+    }
+  });
+  $('#fxForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await S.insertFixed([{ name: $('#fxName').value, amount: +$('#fxAmt').value || 0,
+      cycle: $('#fxCycle').value, kind: $('#fxKind').value, category: $('#fxCat').value,
+      method: $('#fxMethod').value, match: $('#fxName').value, memo: '', active: true, sort: FIXED.length }]);
+    $('#fxName').value = ''; $('#fxAmt').value = ''; $('#fxMethod').value = '';
+    FIXED = await S.listFixed(); renderFixedTab(); toast('추가되었습니다');
+  });
+  $('#tblFxDetect').addEventListener('click', async e => {
+    if (!e.target.classList.contains('fx-add')) return;
+    const tr = e.target.closest('tr');
+    await S.insertFixed([{ name: tr.dataset.m, amount: +tr.dataset.a, cycle: '매월', kind: '고정',
+      category: tr.dataset.c, method: '', match: tr.dataset.m, memo: '자동 감지', active: true, sort: FIXED.length }]);
+    FIXED = await S.listFixed(); renderFixedTab(); toast('고정비에 추가했습니다');
+  });
+
+  /* ---------- 분석 ---------- */
+  $('#anRange').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#anRange button').forEach(x => x.classList.toggle('on', x === b));
+    anRange = +b.dataset.r; renderAnalysis();
+  });
+  $('#granSeg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#granSeg button').forEach(x => x.classList.toggle('on', x === b));
+    gran = b.dataset.g; renderAnalysis();
+  });
+  $('#trendCat').addEventListener('change', renderAnalysis);
+
+  function renderAnalysis() {
+    const n = anRange || months.length;
+
+    /* 고정비 vs 변동비 */
+    const F = A.fixedSummary(TX, n);
+    $('#fixDesc').innerHTML = `최근 <b>${F.months}개월</b> 실제 지출 기준 월평균입니다.`;
+    const t2 = (n2, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n2}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#fixTiles').innerHTML =
+      t2('고정비', fmt(F.fixedAvg), `지출의 ${F.ratio.toFixed(0)}%`, 'var(--ink)') +
+      t2('변동비', fmt(F.varAvg), `지출의 ${(100 - F.ratio).toFixed(0)}% · 줄일 수 있는 돈`, 'var(--warn)') +
+      t2('고정비 항목', F.items.length + '개', '반복 결제 기준', 'var(--purple)');
+    const keep = F.allMonths.slice(-18), off = F.allMonths.length - keep.length;
+    drawChart('chFixed', {
+      type: 'bar',
+      data: { labels: keep.map(m => m.slice(2)),
+        datasets: [
+          { label: '고정비', data: F.fSeries.slice(off), backgroundColor: '#191f28', borderRadius: 5 },
+          { label: '변동비', data: F.vSeries.slice(off), backgroundColor: '#f59e0b', borderRadius: 5 }] },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 11 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => man(v) } } } }
+    });
+
+    /* 쿠팡 · 마트 · 배달 */
+    const sum = A.focusSummary(TX, n);
+    $('#focusDesc').innerHTML = `최근 <b>${n}개월</b> 월평균 · 직전 ${n}개월과 비교`;
+    $('#focusTiles').innerHTML = sum.map(r => {
+      const up = r.delta > 0;
+      const d = r.pct === null ? '비교 기간 없음'
+        : `<span class="${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(r.pct).toFixed(0)}% (${up ? '+' : ''}${man(r.delta)})</span>`;
+      const b = r.bench ? `<div class="d flat">평균 ${man(BENCH.focus[r.bench])} · <b class="${r.now > BENCH.focus[r.bench] ? 'up' : 'down'}">${r.now > BENCH.focus[r.bench] ? '+' : ''}${Math.round((r.now / BENCH.focus[r.bench] - 1) * 100)}%</b></div>` : '';
+      return `<div class="stat"><div class="n"><i style="background:${r.color}"></i>${r.key}</div>
+        <div class="v num">${fmt(r.now)}</div><div class="d">${d}</div>${b}</div>`;
+    }).join('');
+    const gNow = sum.filter(r => A.GROCERY_KEYS.includes(r.key)).reduce((a, r) => a + r.now, 0);
+    const gB = BENCH.focus['장보기(쿠팡·마트·편의점)'], dNow = sum.find(r => r.key === '배달').now, dB = BENCH.focus['배달'];
+    const bar = (label, me, av) => {
+      const max = Math.max(me, av) * 1.2 || 1, over = me > av;
+      return `<div class="bench"><div class="hd"><span class="nm">${label}</span>
+        <span class="vl num">${fmt(me)}</span><span class="dl ${over ? 'up' : 'down'}">${over ? '+' : ''}${man(me - av)}</span></div>
+        <div class="track"><div class="me" style="width:${Math.min(100, me / max * 100)}%;background:${over ? 'var(--expense)' : 'var(--income)'}"></div>
+        <div class="avg" style="left:${av / max * 100}%"></div></div></div>`;
+    };
+    $('#focusBench').innerHTML = bar('장보기 합계', gNow, gB) + bar('배달', dNow, dB);
+    const fm = A.focusMonthly(TX);
+    const fk = fm.months.slice(-18), fo = fm.months.length - fk.length;
+    drawChart('chFocus', {
+      type: 'line',
+      data: { labels: fk.map(m => m.slice(2)),
+        datasets: A.FOCUS.map(f => ({ label: f.key, borderColor: f.color, backgroundColor: f.color + '18',
+          data: fm.series[f.key].slice(fo), tension: .35, pointRadius: 0, borderWidth: 2 })) },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 11 } } },
+                   tooltip: { mode: 'index', intersect: false, callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
+    });
+
+    /* 추이 */
+    const cats = C.CATEGORIES.filter(c => c !== '미분류');
+    if ($('#trendCat').options.length <= 1)
+      $('#trendCat').innerHTML = '<option value="">전체 카테고리</option>' + cats.map(c => `<option>${c}</option>`).join('');
+    const cat = $('#trendCat').value;
+    const src = cat ? TX.filter(t => t.category === cat || t.kind === 'income') : TX;
+    const lim = gran === 'day' ? 60 : gran === 'week' ? 40 : gran === 'month' ? 24 : 10;
+    const s = A.seriesByPeriod(src, gran).slice(-lim);
+    drawChart('chTrend', {
+      data: { labels: s.map(x => A.periodLabel(x.key, gran)),
+        datasets: [
+          { type: 'bar', label: '지출', data: s.map(x => x.expense), backgroundColor: '#f0445290', borderRadius: 5, order: 2 },
+          { type: 'line', label: '수입', data: s.map(x => x.income), borderColor: '#00b25d', backgroundColor: '#00b25d18',
+            tension: .35, fill: true, order: 1, pointRadius: 2, borderWidth: 2 }] },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 11 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
+    });
+
+    const top8 = A.byCategory(TX).slice(0, 8).map(c => c.category);
+    const keys2 = [...new Set(TX.filter(t => t.kind === 'expense').map(t => A.periodKey(t.tx_date, gran)))].sort().slice(-lim);
+    drawChart('chStack', {
+      type: 'bar',
+      data: { labels: keys2.map(k => A.periodLabel(k, gran)),
+        datasets: top8.map(c => ({ label: c, backgroundColor: C.CAT_COLORS[c],
+          data: keys2.map(k => TX.filter(t => A.isHouseholdExpense(t) && t.category === c && A.periodKey(t.tx_date, gran) === k)
+            .reduce((a, t) => a + t.amount, 0)) })) },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 10.5 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => man(v) } } } }
+    });
+
+    $('#tblPeriod tbody').innerHTML = [...s].reverse().map(x => `
+      <tr><td>${A.periodLabel(x.key, gran)}</td><td class="num">${fmt(x.expense)}</td>
+      <td class="num">${fmt(x.income)}</td>
+      <td class="num ${x.income - x.expense < 0 ? 'up' : 'down'}">${fmt(x.income - x.expense)}</td></tr>`).join('');
+  }
+
+  /* ---------- 업로드 ---------- */
+  const drop = $('#drop');
+  drop.addEventListener('click', () => $('#fileInput').click());
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); handleFiles(e.dataTransfer.files); });
+  $('#fileInput').addEventListener('change', e => handleFiles(e.target.files));
+
+  async function handleFiles(files) {
+    const log = $('#uploadLog'); log.classList.remove('hide'); log.textContent = '';
+    const say = m => { log.innerHTML += m + '\n'; log.scrollTop = log.scrollHeight; };
+    for (const f of files) {
+      try {
+        say(`${f.name} 읽는 중...`);
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+        const parsed = P.parseWorkbook(wb, f.name);
+        const { type, rows } = parsed;
+        if (parsed.kind === 'coupang') {
+          const res = await S.insertCoupang(rows);
+          say(`  → ${type} · ${rows.length}건 인식 / 신규 ${res.inserted} 저장 / 중복 ${res.skipped} 건너뜀`);
+        } else {
+          const clean = rows.map(r => { const { _workHint, ...rest } = r; return rest; });
+          const res = await S.insertTx(clean);
+          say(`  → ${type} · ${rows.length}건 인식 / 신규 ${res.inserted} 저장 / 중복 ${res.skipped} 건너뜀`);
+        }
+      } catch (err) { say(`  ✕ 실패: ${err.message}`); }
+    }
+    await reload(); toast('업로드 완료');
+  }
+
+  $('#seedBtn').addEventListener('click', () => loadSeed($('#seedLog')));
+  async function loadSeed(logEl) {
+    const say = m => { if (logEl) { logEl.classList.remove('hide'); logEl.innerHTML += m + '\n'; } };
+    say('초기 데이터 불러오는 중...');
+    try {
+      const seed = window.__SEED__; if (!seed) return say('✕ seed 없음');
+      const fp = P.fpFactory(), rows = [];
+      for (const it of (seed.sheet || [])) {
+        const c = C.categorizeSheetItem(it.name);
+        const r = P.rowFrom({ source: 'sheet', tx_date: `${it.ym}-15`,
+          merchant: it.name + (it.inst ? ` (${it.inst})` : ''), amount: it.amount, raw_amount: it.amount,
+          category: c.category, subcategory: c.sub,
+          memo: [it.user, it.fin].filter(Boolean).join(' · ') || '가계부 시트',
+          fingerprint: fp(['sheet', it.ym, it.name, it.amount]) });
+        delete r._workHint; rows.push(r);
+      }
+      for (const c of (seed.cards || [])) {
+        if (c.d < '2026-01-01') continue;
+        const r = P.rowFrom({ source: 'samsung_card', tx_date: c.d, merchant: c.m, amount: c.a,
+          raw_amount: c.u || c.a, benefit: Math.abs(c.b || 0),
+          installment: c.seq && c.inst ? `${c.seq}/${c.inst}` : '', bill_month: c.bm,
+          memo: c.t === '취소' ? '결제 취소' : '', fingerprint: fp(['sc', c.d, c.m, c.a]) });
+        delete r._workHint; rows.push(r);
+      }
+      for (const b of (seed.bank || [])) {
+        const r = P.bankRow(b, fp); if (!r) continue; delete r._workHint; rows.push(r);
+      }
+      const res = await S.insertTx(rows);
+      say(`총 ${rows.length}건 중 신규 ${res.inserted} 저장 · 중복 ${res.skipped} 건너뜀`);
+      for (const wc of (seed.work_claims || []))
+        await S.upsertClaim({ period: wc.period, amount: wc.amount, status: wc.status,
+                              filed_date: wc.filed, paid_date: wc.paid, memo: '' });
+      say('완료!');
+      await reload(); toast(`초기 데이터 ${res.inserted.toLocaleString()}건 적재`);
+    } catch (err) { say('✕ ' + err.message); }
+  }
+
+  /* ---------- 수입 ---------- */
+  $('#incomeForm').addEventListener('submit', async e => {
+    e.preventDefault(); $('#incErr').textContent = '';
+    try {
+      const src = $('#incSrc').value, d = $('#incDate').value, amt = +$('#incAmt').value;
+      if (!d || !amt) throw new Error('날짜와 금액을 입력하세요.');
+      await S.insertTx([{ kind: 'income', source: 'manual', tx_date: d, merchant: src, amount: amt,
+        raw_amount: amt, benefit: 0, category: '수입', subcategory: src, income_src: src, is_work: false,
+        installment: '', bill_month: null, memo: $('#incMemo').value,
+        fingerprint: `manual|in|${d}|${src}|${amt}|${Date.now()}` }]);
+      $('#incAmt').value = ''; $('#incMemo').value = '';
+      await reload(); go('income'); toast('수입 저장 완료');
+    } catch (err) { $('#incErr').textContent = err.message; }
+  });
+
+  function renderIncome() {
+    if (!$('#incSrc').options.length) $('#incSrc').innerHTML = CFG.INCOME_SOURCES.map(s => `<option>${s}</option>`).join('');
+    if (!$('#incDate').value) $('#incDate').value = new Date().toISOString().slice(0, 10);
+    const inc = TX.filter(A.isIncome).sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+    $('#incomeList').innerHTML = inc.slice(0, 40).map(t => `
+      <div class="row" data-id="${t.id}"><div class="ic">💰</div>
+        <div class="tx"><div class="t1">${esc(t.income_src || t.merchant)}</div><div class="t2">${t.tx_date}</div></div>
+        <div class="amt num in">+${fmt(t.amount)}</div>
+        ${canWrite() ? '<button class="btn ghost sm inc-del" style="margin-left:8px">삭제</button>' : ''}</div>`).join('')
+      || '<p class="desc" style="margin:0;padding:10px 0">기록된 수입이 없습니다.</p>';
+
+    const keys = [...new Set(inc.map(t => t.tx_date.slice(0, 7)))].sort();
+    const srcs = [...new Set(inc.map(t => t.income_src || '기타 수입'))];
+    const pal = ['#14b8a6', '#00b25d', '#f59e0b', '#7c3aed', '#ec4899', '#0ea5e9'];
+    drawChart('chIncome', {
+      type: 'bar',
+      data: { labels: keys.map(k => k.slice(2)),
+        datasets: srcs.map((s, i) => ({ label: s, backgroundColor: pal[i % pal.length], borderRadius: 4,
+          data: keys.map(k => inc.filter(t => (t.income_src || '기타 수입') === s && t.tx_date.slice(0, 7) === k)
+            .reduce((a, t) => a + t.amount, 0)) })) },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 10.5 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => man(v) } } } }
+    });
+  }
+  $('#incomeList').addEventListener('click', async e => {
+    if (!e.target.classList.contains('inc-del')) return;
+    const id = +e.target.closest('.row').dataset.id;
+    if (!confirm('삭제할까요?')) return;
+    await S.deleteTx(id); TX = TX.filter(t => t.id !== id); renderIncome(); toast('삭제됨');
+  });
+
+  /* ---------- 업무비용 ---------- */
+  function renderWork() {
+    const tagged = TX.filter(t => t.is_work).reduce((a, t) => a + t.amount, 0);
+    const paid = CLAIMS.filter(c => c.status === '환급완료').reduce((a, c) => a + (+c.amount || 0), 0);
+    const open = CLAIMS.filter(c => c.status !== '환급완료').reduce((a, c) => a + (+c.amount || 0), 0);
+    const st = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#wkStats').innerHTML = st('업무 태그 합계', fmt(tagged), '가계 지출에서 제외', 'var(--warn)') +
+      st('환급 완료', fmt(paid), `${CLAIMS.filter(c => c.status === '환급완료').length}건`, 'var(--income)') +
+      st('미환급 잔액', fmt(open), '기안 누락 확인', 'var(--expense)');
+
+    const ed = canWrite();
+    $('#tblClaim tbody').innerHTML = [...CLAIMS].sort((a, b) => a.period < b.period ? 1 : -1).map(c => `
+      <tr data-period="${c.period}"><td><b>${c.period}</b></td>
+      <td class="num">${ed ? `<input class="pill js-c-amt" type="number" value="${+c.amount || 0}" style="width:110px;text-align:right;padding:5px 8px;font-size:12.5px;border-radius:9px">` : fmt(+c.amount || 0)}</td>
+      <td>${ed ? `<select class="pill js-c-status" style="padding:5px 22px 5px 8px;font-size:12.5px;border-radius:9px">${['미기안', '기안완료', '환급완료'].map(o => `<option ${o === c.status ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<span class="tag ${c.status === '환급완료' ? 'g' : 'w'}">${c.status}</span>`}</td>
+      <td>${ed ? `<input class="pill js-c-paid" type="date" value="${c.paid_date || ''}" style="padding:5px 8px;font-size:12.5px;border-radius:9px">` : (c.paid_date || '—')}</td>
+      <td>${ed ? `<input class="pill js-c-memo" type="text" value="${esc(c.memo || '')}" style="padding:5px 8px;font-size:12.5px;border-radius:9px;width:130px">` : esc(c.memo || '')}</td>
+      <td>${ed ? '<button class="btn ghost sm js-c-del">삭제</button>' : ''}</td></tr>`).join('')
+      || '<tr><td colspan="6" style="color:var(--muted)">등록된 기안이 없습니다.</td></tr>';
+
+    const cand = TX.filter(t => t.kind === 'expense' &&
+      (t.is_work || /Google \(제미나이|네이버파이낸셜|microsoft|오피스/i.test(t.merchant)))
+      .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1).slice(0, 200);
+    $('#tblWorkCand tbody').innerHTML = cand.map(t => `
+      <tr data-id="${t.id}"><td>${t.tx_date}</td><td>${esc(t.merchant)}</td>
+      <td class="num">${fmt(t.amount)}</td>
+      <td>${ed ? `<input type="checkbox" class="js-work2" ${t.is_work ? 'checked' : ''}>` : (t.is_work ? '업무' : '')}</td></tr>`).join('')
+      || '<tr><td colspan="4" style="color:var(--muted)">후보가 없습니다.</td></tr>';
+  }
+  $('#tblClaim').addEventListener('change', async e => {
+    const tr = e.target.closest('tr'); if (!tr?.dataset.period) return;
+    const row = { period: tr.dataset.period, amount: +tr.querySelector('.js-c-amt').value || 0,
+      status: tr.querySelector('.js-c-status').value,
+      paid_date: tr.querySelector('.js-c-paid').value || null,
+      memo: tr.querySelector('.js-c-memo').value || '' };
+    if (row.status === '환급완료' && !row.paid_date) {
+      row.paid_date = new Date().toISOString().slice(0, 10);
+      tr.querySelector('.js-c-paid').value = row.paid_date;
+    }
+    await S.upsertClaim(row); CLAIMS = await S.listClaims(); renderWork(); toast(`${row.period} 저장됨`);
+  });
+  $('#tblClaim').addEventListener('click', async e => {
+    if (!e.target.classList.contains('js-c-del')) return;
+    const period = e.target.closest('tr').dataset.period;
+    if (!confirm(`${period} 기안 건을 삭제할까요?`)) return;
+    await S.deleteClaim(period); CLAIMS = await S.listClaims(); renderWork(); toast('삭제됨');
+  });
+  $('#tblWorkCand').addEventListener('change', async e => {
+    if (!e.target.classList.contains('js-work2')) return;
+    const id = +e.target.closest('tr').dataset.id, t = TX.find(x => x.id === id);
+    await S.updateTx(id, { is_work: e.target.checked }); t.is_work = e.target.checked;
+    renderWork(); toast('반영됨');
+  });
+  $('#claimForm').addEventListener('submit', async e => {
+    e.preventDefault(); if (!$('#clPeriod').value) return;
+    await S.upsertClaim({ period: $('#clPeriod').value, amount: +$('#clAmt').value,
+      status: $('#clStatus').value, paid_date: $('#clPaid').value || null, memo: $('#clMemo').value || '' });
+    $('#clAmt').value = ''; $('#clMemo').value = '';
+    CLAIMS = await S.listClaims(); renderWork(); toast('추가되었습니다');
+  });
+
+  /* ---------- 정보 ---------- */
+  function renderInfo() {
+    const bySrc = {};
+    for (const t of TX) bySrc[t.source] = (bySrc[t.source] || 0) + 1;
+    $('#infoBody').innerHTML = `
+      <b>기간</b> ${months[0] || '—'} ~ ${months[months.length - 1] || '—'}<br>
+      <b>거래</b> ${TX.length.toLocaleString()}건 · 고정비 ${FIXED.length}개 · 기안 ${CLAIMS.length}건 · 쿠팡 상품 ${CP.length.toLocaleString()}건<br>
+      <b>출처</b> ${Object.entries(bySrc).map(([k, v]) => `${srcLabel(k)} ${v.toLocaleString()}`).join(' · ')}<br>
+      <b>저장</b> ${S.ONLINE ? 'Supabase (두 기기 공유)' : '이 브라우저에만 저장 (오프라인 모드)'}<br><br>
+      <span style="color:var(--muted)">2025년은 기존 가계부 시트를 옮겨온 월 단위 집계라 가맹점 상세와 수입 기록이 없습니다.
+      2026년부터는 카드·은행 실거래 기준이며, 집계 기준일은 <b>이용일</b>입니다 —
+      이번 달 카드 사용분은 다음 달 명세서를 올려야 채워집니다.</span>`;
+  }
+
+  /* ---------- 유틸 ---------- */
+  function drawChart(id, cfg) {
+    const el = document.getElementById(id); if (!el) return;
+    if (charts[id]) charts[id].destroy();
+    cfg.options = Object.assign({ responsive: true, animation: { duration: 380 } }, cfg.options);
+    charts[id] = new Chart(el, cfg);
+  }
+})();

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="현우미란 가계부">
+<meta name="mobile-web-app-capable" content="yes">
+<title>현우 미란 가계부</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ============ 로그인 ============ -->
+<div id="login">
+  <form class="login-card" id="loginForm">
+    <div class="login-logo">₩</div>
+    <h1>현우 미란 가계부</h1>
+    <p class="sub">우리 둘만 보는 가계부</p>
+    <div class="field">
+      <label for="email">이메일</label>
+      <input id="email" type="email" inputmode="email" autocomplete="username" placeholder="you@example.com" required>
+    </div>
+    <div class="field">
+      <label for="password">비밀번호</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <button class="btn acc block" type="submit" id="loginBtn" style="margin-top:6px">로그인</button>
+    <div class="err" id="loginErr"></div>
+    <p class="sub" id="offlineNote" style="margin:14px 0 0;font-size:11.5px;line-height:1.5"></p>
+  </form>
+</div>
+
+<!-- ============ 앱 ============ -->
+<div id="app" class="hide">
+
+  <header class="top">
+    <div class="top-row">
+      <h1 id="viewTitle">가계부</h1>
+      <div class="top-actions">
+        <span class="badge" id="userRole">—</span>
+        <button class="iconbtn" id="logoutBtn" title="로그아웃">⏻</button>
+      </div>
+    </div>
+    <div class="mnav" id="mnav">
+      <button class="arw" id="mPrev">‹</button>
+      <div class="lbl" id="mLabel">—</div>
+      <button class="arw" id="mNext">›</button>
+      <div class="sums">
+        <div>지출 <b class="e num" id="mExp">—</b></div>
+        <div>수입 <b class="i num" id="mInc">—</b></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ---------- 홈 ---------- -->
+    <section id="v-home" class="view">
+      <div class="card" id="homeHero">
+        <div class="cap">이번 달 남은 돈</div>
+        <div class="big num" id="heroNet">—</div>
+        <div class="cap" id="heroSub" style="margin-top:6px"></div>
+        <div class="track" style="margin-top:14px;height:10px">
+          <div class="me" id="heroBar" style="width:0%;background:var(--accent)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:7px">
+          <span class="cap" id="heroL">지출</span><span class="cap" id="heroR">수입</span>
+        </div>
+      </div>
+
+      <div class="hscroll" id="homeStats"></div>
+
+      <div class="card">
+        <h2>카테고리별 지출</h2>
+        <p class="desc" id="homeCatDesc">—</p>
+        <div class="chart-box"><canvas id="chDonut"></canvas></div>
+        <div class="legend" id="homeLegend"></div>
+      </div>
+
+      <div class="card">
+        <h2>2인 가구 평균과 비교</h2>
+        <p class="desc" id="benchDesc">—</p>
+        <div id="benchBars"></div>
+        <p class="desc" style="margin:12px 0 0">
+          검은 세로선이 평균입니다 · <a id="benchSrc" href="#" target="_blank" rel="noopener">출처</a>
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>진단 및 절약 제안</h2>
+        <p class="desc" id="adviceHead">—</p>
+        <div id="adviceList"></div>
+      </div>
+
+      <div class="card">
+        <h2>많이 쓴 곳</h2>
+        <p class="desc">이번 달 상위 10곳</p>
+        <div id="topList"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 가계부(거래 내역) ---------- -->
+    <section id="v-ledger" class="view hide">
+      <div class="controls">
+        <div class="seg" id="ledgerKind">
+          <button data-k="expense" class="on">지출</button>
+          <button data-k="income">수입</button>
+          <button data-k="">전체</button>
+        </div>
+        <div class="spacer"></div>
+        <button class="iconbtn" id="ledgerSearchBtn">🔍</button>
+      </div>
+      <div id="ledgerSearchWrap" class="hide" style="margin-bottom:10px">
+        <input class="pill" id="fSearch" type="search" placeholder="가맹점 검색" style="width:100%">
+      </div>
+      <div class="chips" id="ledgerCats" style="margin-bottom:12px"></div>
+      <div class="card tight" id="ledgerCard">
+        <div id="ledgerList"></div>
+      </div>
+      <div style="text-align:center;padding:10px 0 4px">
+        <button class="btn ghost sm hide" id="ledgerMore">더 보기</button>
+      </div>
+    </section>
+
+    <!-- ---------- 고정비 ---------- -->
+    <section id="v-fixed" class="view hide">
+      <div class="card">
+        <div class="cap">매달 나가는 고정비</div>
+        <div class="big num" id="fxTotal">—</div>
+        <div class="cap" id="fxSub" style="margin-top:6px"></div>
+      </div>
+      <div class="hscroll" id="fxStats"></div>
+
+      <div class="card">
+        <h2>고정비 구성</h2>
+        <div class="chart-box sm"><canvas id="chFxCat"></canvas></div>
+        <div class="legend" id="fxLegend"></div>
+      </div>
+
+      <div class="card">
+        <h2>고정비 목록</h2>
+        <p class="desc">표에서 바로 고치면 즉시 저장됩니다. 할부는 <b>+1</b> 로 회차를 넘기면 완납 시 자동으로 빠집니다.</p>
+        <details style="margin-bottom:12px">
+          <summary style="font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer">항목 추가</summary>
+          <form id="fxForm" class="controls" style="margin-top:10px">
+            <input class="pill" id="fxName" placeholder="항목명" required style="flex:1;min-width:140px">
+            <input class="pill" id="fxAmt" type="number" inputmode="numeric" placeholder="금액" required style="width:110px">
+            <select class="pill" id="fxCycle"><option>매월</option><option>격월</option><option>분기</option><option>반기</option><option>연</option></select>
+            <select class="pill" id="fxKind"><option>고정</option><option>할부</option></select>
+            <select class="pill" id="fxCat"></select>
+            <input class="pill" id="fxMethod" placeholder="결제수단" style="width:120px">
+            <button class="btn acc sm" type="submit">추가</button>
+          </form>
+        </details>
+        <div class="tbl-wrap">
+          <table id="tblFx"><thead><tr>
+            <th>사용</th><th>항목</th><th class="num">금액</th><th>주기</th><th>유형</th><th>회차</th>
+            <th>분류</th><th>결제수단</th><th>메모</th><th class="num">월 환산</th><th></th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>자동 감지된 반복 결제</h2>
+        <p class="desc">목록에 없는 반복 결제입니다. <b>추가</b>를 누르면 고정비로 들어갑니다.</p>
+        <div class="tbl-wrap">
+          <table id="tblFxDetect"><thead><tr>
+            <th>가맹점</th><th>분류</th><th class="num">월평균</th><th>발생</th><th></th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 쿠팡 ---------- -->
+    <section id="v-coupang" class="view hide">
+      <div class="controls">
+        <div class="seg" id="cpRange">
+          <button data-r="cur" class="on">이번달</button>
+          <button data-r="prev">지난달</button>
+          <button data-r="3">3개월</button>
+          <button data-r="6">6개월</button>
+          <button data-r="12">12개월</button>
+          <button data-r="0">전체</button>
+          <button data-r="custom">기간 설정</button>
+        </div>
+      </div>
+      <div class="controls hide" id="cpCustom">
+        <input class="pill" id="cpFrom" type="date" style="flex:1">
+        <span class="cap">~</span>
+        <input class="pill" id="cpTo" type="date" style="flex:1">
+      </div>
+
+      <div class="card">
+        <div class="cap" id="cpPeriod">—</div>
+        <div class="big num" id="cpTotal">—</div>
+        <div class="cap" id="cpSub" style="margin-top:6px"></div>
+        <div id="cpCompare" class="hide" style="margin-top:14px">
+          <div class="track"><div class="me" id="cpBar" style="width:0%;background:var(--accent)"></div>
+            <div class="avg" id="cpAvgMark" style="left:0%"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:7px">
+            <span class="cap" id="cpCmpL"></span><span class="cap" id="cpCmpR"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hscroll" id="cpStats"></div>
+
+      <div class="card">
+        <h2>무엇을 샀나</h2>
+        <p class="desc" id="cpCatDesc">—</p>
+        <div class="chart-box"><canvas id="chCpDonut"></canvas></div>
+        <div class="legend" id="cpLegend"></div>
+      </div>
+
+      <div class="card">
+        <h2>월별 쿠팡 지출</h2>
+        <div class="chart-box sm"><canvas id="chCpMonth"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>많이 산 상품</h2>
+        <div class="controls">
+          <div class="seg" id="cpTopMode">
+            <button data-m="amount" class="on">금액순</button>
+            <button data-m="qty">수량순</button>
+            <button data-m="count">횟수순</button>
+          </div>
+        </div>
+        <div id="cpTop"></div>
+      </div>
+
+      <div class="card">
+        <h2>카드 결제와 대조</h2>
+        <p class="desc">삼성카드 명세서의 쿠팡 결제액과 주문내역 합계를 비교합니다.
+          차이가 나는 이유는 보통 이렇습니다 — ① 쿠페이 머니·다른 카드로 결제 ② 카드 명세서가 아직 안 나온 달
+          ③ 취소·반품 ④ 2025년은 카드 상세 데이터가 없음(가계부 시트 기반).</p>
+        <div class="tbl-wrap"><table id="tblCpMatch"><thead><tr>
+          <th>월</th><th class="num">주문내역</th><th class="num">카드 결제</th><th class="num">차이</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="card">
+        <h2>전체 주문</h2>
+        <div class="controls">
+          <input class="pill" id="cpSearch" type="search" placeholder="상품 검색" style="flex:1;min-width:150px">
+        </div>
+        <div class="chips" id="cpCats" style="margin-bottom:10px"></div>
+        <div id="cpList"></div>
+        <div style="text-align:center;padding:10px 0 0">
+          <button class="btn ghost sm hide" id="cpMore">더 보기</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 분석 ---------- -->
+    <section id="v-analysis" class="view hide">
+      <div class="controls">
+        <div class="seg" id="anRange">
+          <button data-r="3" class="on">3개월</button>
+          <button data-r="6">6개월</button>
+          <button data-r="12">12개월</button>
+          <button data-r="0">전체</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>고정비 vs 변동비</h2>
+        <p class="desc" id="fixDesc">—</p>
+        <div class="hscroll" id="fixTiles" style="margin-bottom:6px"></div>
+        <div class="chart-box sm"><canvas id="chFixed"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>쿠팡 · 마트 · 배달</h2>
+        <p class="desc" id="focusDesc">—</p>
+        <div class="hscroll" id="focusTiles" style="margin-bottom:10px"></div>
+        <div id="focusBench" style="margin-bottom:14px"></div>
+        <div class="chart-box"><canvas id="chFocus"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>기간별 추이</h2>
+        <div class="controls">
+          <div class="seg" id="granSeg">
+            <button data-g="year">연</button>
+            <button data-g="month" class="on">월</button>
+            <button data-g="week">주</button>
+            <button data-g="day">일</button>
+          </div>
+          <select class="pill" id="trendCat" style="flex:1"><option value="">전체 카테고리</option></select>
+        </div>
+        <div class="chart-box lg"><canvas id="chTrend"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>카테고리 누적 추이</h2>
+        <div class="chart-box lg"><canvas id="chStack"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>기간별 요약</h2>
+        <div class="tbl-wrap"><table id="tblPeriod"><thead><tr>
+          <th>기간</th><th class="num">지출</th><th class="num">수입</th><th class="num">차액</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ---------- 더보기 ---------- -->
+    <section id="v-more" class="view hide">
+      <div class="card tight">
+        <div class="row" style="cursor:pointer" data-go="upload">
+          <div class="ic">📄</div><div class="tx"><div class="t1">명세서 업로드</div>
+          <div class="t2">삼성카드 · 기업은행 파일 올리기</div></div><div class="chev">›</div>
+        </div>
+        <div class="row" style="cursor:pointer" data-go="income">
+          <div class="ic">💰</div><div class="tx"><div class="t1">수입 입력</div>
+          <div class="t2">근로소득 · 사업소득 기록</div></div><div class="chev">›</div>
+        </div>
+        <div class="row" style="cursor:pointer" data-go="work">
+          <div class="ic">🧳</div><div class="tx"><div class="t1">업무비용 환급</div>
+          <div class="t2">루트82 개인카드 사용분</div></div><div class="chev">›</div>
+        </div>
+        <div class="row" style="cursor:pointer" data-go="info">
+          <div class="ic">ℹ️</div><div class="tx"><div class="t1">데이터 정보</div>
+          <div class="t2">기간 · 건수 · 출처</div></div><div class="chev">›</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 업로드 ---------- -->
+    <section id="v-upload" class="view hide">
+      <div class="card">
+        <h2>명세서 업로드</h2>
+        <p class="desc">삼성카드 월 명세서(.xlsx) 또는 기업은행 입출금 내역(.xls)을 그대로 올리면 자동 분류됩니다.
+          같은 파일을 여러 번 올려도 중복 저장되지 않습니다.</p>
+        <div class="drop" id="drop">파일을 여기에 놓거나 눌러서 선택<br><small>여러 개 동시에 가능</small></div>
+        <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv" class="hide">
+        <div class="log hide" id="uploadLog"></div>
+      </div>
+      <div class="card">
+        <h2>초기 데이터 다시 불러오기</h2>
+        <p class="desc">2025년 1월 ~ 2026년 7월 데이터를 넣습니다. 보통은 로그인 시 자동으로 들어갑니다.</p>
+        <button class="btn ghost" id="seedBtn">다시 불러오기</button>
+        <div class="log hide" id="seedLog"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 수입 입력 ---------- -->
+    <section id="v-income" class="view hide">
+      <div class="card">
+        <h2>수입 입력</h2>
+        <p class="desc">근로소득은 거의 고정, 사업소득은 들어올 때마다 기록하세요.</p>
+        <form id="incomeForm">
+          <div class="field"><label>수입처</label><select id="incSrc" class="pill" style="width:100%" required></select></div>
+          <div class="field"><label>날짜</label><input id="incDate" class="pill" type="date" style="width:100%" required></div>
+          <div class="field"><label>금액 (원)</label><input id="incAmt" class="pill" type="number" inputmode="numeric" style="width:100%" placeholder="5095650" required></div>
+          <div class="field"><label>메모 (선택)</label><input id="incMemo" class="pill" type="text" style="width:100%" placeholder="예: 7월 급여"></div>
+          <button class="btn acc block" type="submit" style="margin-top:6px">저장</button>
+          <div class="err" id="incErr"></div>
+        </form>
+      </div>
+      <div class="card tight">
+        <div class="sec-title" style="margin-top:4px">최근 수입</div>
+        <div id="incomeList"></div>
+      </div>
+      <div class="card">
+        <h2>수입처별 추이</h2>
+        <div class="chart-box"><canvas id="chIncome"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ---------- 업무비용 ---------- -->
+    <section id="v-work" class="view hide">
+      <div class="hscroll" id="wkStats"></div>
+      <div class="card">
+        <h2>루트82 업무 사용분</h2>
+        <p class="desc">개인카드로 먼저 쓰고 익월 10일에 돌려받는 금액입니다.
+          거래 내역에서 <b>업무</b>로 표시하면 가계 지출에서 빠집니다.</p>
+        <details style="margin-bottom:12px">
+          <summary style="font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer">기안 건 추가</summary>
+          <form id="claimForm" class="controls" style="margin-top:10px">
+            <input class="pill" id="clPeriod" type="month" required>
+            <input class="pill" id="clAmt" type="number" inputmode="numeric" placeholder="금액" required style="width:120px">
+            <select class="pill" id="clStatus"><option>미기안</option><option>기안완료</option><option>환급완료</option></select>
+            <input class="pill" id="clPaid" type="date">
+            <input class="pill" id="clMemo" placeholder="메모" style="flex:1;min-width:110px">
+            <button class="btn acc sm" type="submit">추가</button>
+          </form>
+        </details>
+        <div class="tbl-wrap"><table id="tblClaim"><thead><tr>
+          <th>귀속월</th><th class="num">금액</th><th>상태</th><th>입금일</th><th>메모</th><th></th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>업무 태그 후보</h2>
+        <div class="tbl-wrap"><table id="tblWorkCand"><thead><tr>
+          <th>일자</th><th>가맹점</th><th class="num">금액</th><th>업무</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ---------- 정보 ---------- -->
+    <section id="v-info" class="view hide">
+      <div class="card">
+        <h2>데이터 정보</h2>
+        <div id="infoBody" style="font-size:13.5px;color:var(--ink2);line-height:1.7"></div>
+      </div>
+      <div class="card">
+        <h2>앱으로 설치하기</h2>
+        <p class="desc" style="margin-bottom:10px">
+          <b>아이폰</b> — 사파리에서 이 페이지를 열고 아래 <b>공유 버튼</b> → <b>홈 화면에 추가</b><br>
+          <b>안드로이드</b> — 크롬 메뉴 → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>
+        </p>
+        <p class="desc" style="margin:0">추가하면 주소창 없이 앱처럼 전체화면으로 열립니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar"><div class="in" id="tabbar">
+    <button data-v="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>홈</button>
+    <button data-v="ledger"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>가계부</button>
+    <button data-v="coupang"><svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>쿠팡</button>
+    <button data-v="fixed"><svg viewBox="0 0 24 24"><path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>고정비</button>
+    <button data-v="analysis"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>분석</button>
+    <button data-v="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>더보기</button>
+  </div></nav>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="data/benchmark.js"></script>
+<script src="data/seed.js"></script>
+<script src="data/coupang.js"></script>
+<script src="js/config.js"></script>
+<script src="js/categorize.js"></script>
+<script src="js/parsers.js"></script>
+<script src="js/store.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
