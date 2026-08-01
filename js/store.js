@@ -6,7 +6,7 @@
   'use strict';
   const CFG = root.APP_CONFIG || {};
   const ONLINE = !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY);
-  const LS_TX = 'bb_transactions', LS_WC = 'bb_work_claims', LS_USER = 'bb_user', LS_FX = 'bb_fixed_costs', LS_CP = 'bb_coupang';
+  const LS_TX = 'bb_transactions', LS_WC = 'bb_work_claims', LS_USER = 'bb_user', LS_FX = 'bb_fixed_costs', LS_CP = 'bb_coupang', LS_ST = 'bb_settings';
 
   let sb = null;
   if (ONLINE && root.supabase) sb = root.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
@@ -20,7 +20,7 @@
       // 오프라인 모드: 아이디만으로 역할 구분
       const id = String(email).trim();
       const name = /미란|miran/i.test(id) ? '홍미란' : '김현우';
-      const user = { name, role: name === '홍미란' ? 'viewer' : 'owner', email: id, offline: true };
+      const user = { name, role: name === '홍미란' ? 'member' : 'owner', email: id, offline: true };
       lsSet(LS_USER, user);
       return user;
     }
@@ -206,7 +206,20 @@
     if (error) throw error;
   }
 
-  root.Store = { ONLINE, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx,
+  /* ---------------- 설정 ---------------- */
+  async function getSetting(key, def) {
+    if (!ONLINE) { const all = lsGet(LS_ST, {}); return all[key] ?? def; }
+    const { data, error } = await sb.from('settings').select('value').eq('key', key).maybeSingle();
+    if (error) return def;
+    return data ? data.value : def;
+  }
+  async function setSetting(key, value) {
+    if (!ONLINE) { const all = lsGet(LS_ST, {}); all[key] = value; lsSet(LS_ST, all); return; }
+    const { error } = await sb.from('settings').upsert({ key, value, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  }
+
+  root.Store = { ONLINE, getSetting, setSetting, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx,
                  listClaims, upsertClaim, deleteClaim,
                  listFixed, insertFixed, updateFixed, deleteFixed,
                  listCoupang, insertCoupang, updateCoupang };

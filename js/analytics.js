@@ -12,10 +12,14 @@
   /* ---------- 가계 지출 판정 ---------- */
   // 카드 결제대금 상환, 본인계좌 이체는 이중계상이므로 제외
   const EXCLUDE_SUB = new Set(['카드대금', '본인 계좌 이체', '본인계좌 이체', '카드 환불']);
+  // 홍미란님이 직접 지출을 기록한 달의 집합 (app.js 에서 채워줌)
+  let SPOUSE_RECORDED = new Set();
   function isHouseholdExpense(t) {
     if (t.kind !== 'expense') return false;
     if (t.is_work) return false;                       // 루트82 업무 사용분 → 환급 예정이므로 제외
     if (EXCLUDE_SUB.has(t.subcategory)) return false;
+    // 배우자에게 보낸 생활비는 본인이 직접 기록한 달이면 내부이체 → 이중계상 방지
+    if (t.subcategory === '배우자 생활비 이체' && SPOUSE_RECORDED.has(t.tx_date.slice(0, 7))) return false;
     return true;
   }
   const isIncome = t => t.kind === 'income';
@@ -506,7 +510,11 @@
     return s / Math.max(1, set.size);
   }
 
+  Object.defineProperty(root, '__setSpouse', { value: v => { SPOUSE_RECORDED = v || new Set(); } });
+
   root.Analytics = {
+    set SPOUSE_RECORDED(v) { root.__setSpouse(v); },
+    get SPOUSE_RECORDED() { return SPOUSE_RECORDED; },
     won, man, periodKey, periodLabel, seriesByPeriod, byCategory, bySub, topMerchants,
     monthlyAverage, buildAdvice, cashflow, topDrivers, effectiveMonths, FIXED_SUBS, NOT_FIXED_SUBS, planSummary, instDone, CYCLE_DIV, isFixed, recurringMerchants, fixedSummary, FOCUS, GROCERY_KEYS, focusMonthly, focusSummary, isHouseholdExpense, isIncome, latestMonths, incomeAvg, subAvg
   };

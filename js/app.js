@@ -8,7 +8,16 @@
   const A = window.Analytics, C = window.Categorize, P = window.Parsers, S = window.Store;
   const CFG = window.APP_CONFIG;
 
-  let USER = null, TX = [], CLAIMS = [], FIXED = [], CP = [], BENCH = null;
+  let USER = null, TX = [], VTX = [], CLAIMS = [], FIXED = [], CP = [], BENCH = null;
+  let person = '';   // '' = 2인 합계, 아니면 사람 이름
+  let BUDGET = { amount: 1000000, startDay: 1 };
+  let bgLimit = 40;
+  // 생활비로 볼 하위분류
+  const BUDGET_SUBS = new Set(['쿠팡', '마트/장보기', '편의점', '기타식품',
+                               '배달', '카페', '베이커리/간식', '외식', '패스트푸드',
+                               '온라인/백화점', '간편결제']);
+  const isBudgetTx = t => A.isHouseholdExpense(t) &&
+    (BUDGET_SUBS.has(t.subcategory) || (t.source === 'sms' && t.category === '미분류'));
   let charts = {}, seeding = false;
   let months = [], curMonth = null;
   let view = 'home', anRange = 3, gran = 'month';
@@ -16,7 +25,11 @@
 
   const fmt = A.won, man = A.man;
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const canWrite = () => USER && USER.role === 'owner';
+  const canWrite = () => !!USER;                              // 둘 다 자기 것은 쓸 수 있음
+  const isAdmin  = () => USER && USER.role === 'owner';       // 김현우 : 전체 관리
+  const ownerOf  = r => r.owner || '김현우';
+  const canEdit  = r => USER && (isAdmin() || ownerOf(r) === USER.name);
+  const PEOPLE   = ['김현우', '홍미란'];
   const toast = m => {
     $$('.toast').forEach(t => t.remove());
     const d = document.createElement('div'); d.className = 'toast'; d.textContent = m;
@@ -25,7 +38,7 @@
   let cpRange = 'cur', cpTopMode = 'amount', cpCat = '', cpQ = '', cpLimit = 60;
   const BOOKMARKLET = `javascript:(function()%7Bvar%20APP%3D'https%3A%2F%2Fbrooksserviceskim.github.io%2Fhm-budget%2F'%3Bvar%20clean%3Dfunction(s)%7Breturn%20String(s%7C%7C'').replace(%2F%5Cs%2B%2Fg%2C'%20').trim()%7D%3Bvar%20pad%3Dfunction(n)%7Breturn%20String(n).padStart(2%2C'0')%7D%3Bvar%20isPrice%3Dfunction(t)%7Breturn%20%2F%5E%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%24%2F.test(t)%7D%3Bvar%20isQty%3Dfunction(t)%7Breturn%20%2F%5E%5Cd%2B%5Cs*%EA%B0%9C%24%2F.test(t)%7D%3Bvar%20isDate%3Dfunction(t)%7Breturn%20%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F.test(t)%7D%3Bvar%20BAD%3D%2F%EC%9E%A5%EB%B0%94%EA%B5%AC%EB%8B%88%7C%EB%B0%B0%EC%86%A1%EC%A1%B0%ED%9A%8C%7C%EB%A6%AC%EB%B7%B0%7C%EA%B5%90%ED%99%98%7C%EB%B0%98%ED%92%88%7C%EC%9E%AC%EA%B5%AC%EB%A7%A4%7C%EC%A3%BC%EB%AC%B8%20%EC%83%81%EC%84%B8%7C%EB%8D%94%EB%B3%B4%EA%B8%B0%7C%EC%B7%A8%EC%86%8C%7C%EC%98%81%EC%88%98%EC%A6%9D%7C%EB%AC%B8%EC%9D%98%2F%3Bvar%20rows%3D%5B%5D%2Cseen%3D%7B%7D%2CcurDate%3D''%3Bvar%20w%3Ddocument.createTreeWalker(document.body%2CNodeFilter.SHOW_ELEMENT%2Cnull%2Cfalse)%3Bvar%20nodes%3D%5B%5D%3Bwhile(w.nextNode())%7Bnodes.push(w.currentNode)%7Dfor(var%20i%3D0%3Bi%3Cnodes.length%3Bi%2B%2B)%7Bvar%20el%3Dnodes%5Bi%5D%3Bif(el.children.length%3D%3D%3D0)%7Bvar%20t%3Dclean(el.textContent)%3Bif(isDate(t))%7Bvar%20m%3Dt.match(%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F)%3BcurDate%3Dm%5B1%5D%2B'-'%2Bpad(m%5B2%5D)%2B'-'%2Bpad(m%5B3%5D)%3Bcontinue%7Dif(isPrice(t))%7Bvar%20price%3DNumber(t.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%3Bif(!price)%7Bcontinue%7Dvar%20box%3Del%2Clv%3D0%3Bwhile(box.parentElement%26%26lv%3C5)%7Bbox%3Dbox.parentElement%3Blv%2B%2B%3Bvar%20leaves%3Dbox.querySelectorAll('*')%2Ccand%3D%5B%5D%2Cqty%3D1%3Bfor(var%20j%3D0%3Bj%3Cleaves.length%3Bj%2B%2B)%7Bvar%20e2%3Dleaves%5Bj%5D%3Bif(e2.children.length)continue%3Bvar%20s2%3Dclean(e2.textContent)%3Bif(!s2)continue%3Bif(isQty(s2))%7Bqty%3DNumber(s2.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%7C%7C1%3Bcontinue%7Dif(isPrice(s2)%7C%7CisDate(s2))continue%3Bif(BAD.test(s2))continue%3Bif(s2.length%3E%3D5)cand.push(s2)%3B%7Dcand.sort(function(a%2Cb)%7Breturn%20b.length-a.length%7D)%3Bif(cand.length)%7Bvar%20name%3Dcand%5B0%5D.replace(%2F%5Cs*%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%5Cs*%24%2F%2C'').trim()%3Bif(name.length%3E%3D5)%7Bvar%20key%3DcurDate%2B'%7C'%2Bname%2B'%7C'%2Bprice%2B'%7C'%2Bqty%3Bif(!seen%5Bkey%5D)%7Bseen%5Bkey%5D%3D1%3Brows.push(%7Bd%3AcurDate%2Cn%3Aname.slice(0%2C120)%2Cq%3Aqty%2Cp%3Aprice%7D)%7Dbreak%3B%7D%7D%7D%7D%7D%7Dif(!rows.length)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%84%20%EC%B0%BE%EC%A7%80%20%EB%AA%BB%ED%96%88%EC%8A%B5%EB%8B%88%EB%8B%A4.%5Cn%EC%BF%A0%ED%8C%A1%20%EC%A3%BC%EB%AC%B8%EB%AA%A9%EB%A1%9D%20%ED%99%94%EB%A9%B4%EC%97%90%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dif(rows.length%3E250)%7Brows%3Drows.slice(0%2C250)%7Dvar%20payload%3DencodeURIComponent(JSON.stringify(rows))%3Bvar%20url%3DAPP%2B'%23cpimport%3D'%2Bpayload%3Bif(url.length%3E60000)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%B4%20%EB%84%88%EB%AC%B4%20%EB%A7%8E%EC%8A%B5%EB%8B%88%EB%8B%A4.%20%ED%8E%98%EC%9D%B4%EC%A7%80%EB%A5%BC%20%EB%82%98%EB%88%A0%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dvar%20win%3Dnull%3Btry%7Bwin%3Dwindow.open(url%2C'_blank')%7Dcatch(e)%7B%7Dif(!win)%7Blocation.href%3Durl%7D%7D)()%3B`;
   const VIEW_TITLE = { home: '가계부', ledger: '거래 내역', coupang: '쿠팡', fixed: '고정비', analysis: '분석',
-                       cpimport: '쿠팡 가져오기',
+                       cpimport: '쿠팡 가져오기', expense: '지출 입력', budget: '생활비',
                        more: '더보기', upload: '명세서 업로드', income: '수입 입력',
                        work: '업무비용 환급', info: '데이터 정보' };
   const MONTH_VIEWS = new Set(['home', 'ledger']);
@@ -63,24 +76,26 @@
     USER = u;
     $('#login').classList.add('hide');
     $('#app').classList.remove('hide');
-    $('#userRole').textContent = canWrite() ? '김현우' : '홍미란';
-    $('#userRole').className = 'badge' + (canWrite() ? '' : ' view');
+    $('#userRole').textContent = u.name;
+    $('#userRole').className = 'badge' + (isAdmin() ? '' : ' view');
+    $$('[data-admin]').forEach(el => el.classList.toggle('hide', !isAdmin()));
     await reload();
   }
 
   async function reload() {
     TX = await S.listTx();
-    if (!TX.length && canWrite() && !seeding && window.__SEED__) {
+    if (!TX.length && isAdmin() && !seeding && window.__SEED__) {
       seeding = true; await loadSeed(null); seeding = false; return;
     }
     CLAIMS = await S.listClaims().catch(() => []);
     FIXED = await S.listFixed().catch(() => []);
-    if (!FIXED.length && canWrite() && window.__SEED__?.fixed) {
+    if (!FIXED.length && isAdmin() && window.__SEED__?.fixed) {
       await S.insertFixed(window.__SEED__.fixed);
       FIXED = await S.listFixed();
     }
+    BUDGET = await S.getSetting('budget', { amount: 1000000, startDay: 1 }).catch(() => BUDGET);
     CP = await S.listCoupang().catch(() => []);
-    if (!CP.length && canWrite() && window.__COUPANG__?.length) {
+    if (!CP.length && isAdmin() && window.__COUPANG__?.length) {
       await S.insertCoupang(window.__COUPANG__);
       CP = await S.listCoupang();
     }
@@ -93,11 +108,15 @@
 
   /* ---------- 데이터 정리 마이그레이션 ---------- */
   async function migrate() {
-    if (!canWrite()) return;
+    if (!isAdmin()) return;
     let n = 0;
     const L = P.BANK_LABEL || {};
     for (const t of TX) {
       const patch = {};
+      if (t.source === 'sms' && t.category === '미분류') {
+        const g = C.categorize(t.merchant);
+        if (g.matched) { patch.category = g.category; patch.subcategory = g.sub; }
+      }
       if (t.category !== '사업·투자' && C.BIZ_SUBS.includes(t.subcategory || '')) patch.category = '사업·투자';
       if (t.source === 'bank' && t.kind === 'expense' && L[t.subcategory] && t.merchant !== L[t.subcategory])
         patch.merchant = L[t.subcategory];
@@ -160,7 +179,7 @@
     $('#v-' + v)?.classList.remove('hide');
     $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
     if (v === 'cpimport') { $('#bmCode').value = BOOKMARKLET; }
-    if (!['home', 'ledger', 'coupang', 'fixed', 'analysis', 'more'].includes(v))
+    if (!['home', 'ledger', 'budget', 'fixed', 'analysis', 'more'].includes(v))
       $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === 'more'));
     $('#viewTitle').textContent = VIEW_TITLE[v] || '가계부';
     $('#mnav').classList.toggle('hide', !MONTH_VIEWS.has(v));
@@ -172,17 +191,38 @@
   $('#mNext').addEventListener('click', () => { const i = months.indexOf(curMonth); if (i < months.length - 1) { curMonth = months[i + 1]; renderAll(); } });
 
   /* ================= 렌더 ================= */
-  function monthTx(m) { return TX.filter(t => t.tx_date.slice(0, 7) === m); }
+  function monthTx(m) { return VTX.filter(t => t.tx_date.slice(0, 7) === m); }
+
+  function applyPerson() {
+    VTX = person ? TX.filter(t => ownerOf(t) === person) : TX;
+    // 미란님이 직접 기록한 달에는 '배우자 생활비 이체'를 내부이체로 처리 (이중계상 방지)
+    const cnt = new Map();
+    for (const t of TX) {
+      if (t.kind !== 'expense' || ownerOf(t) !== '홍미란') continue;
+      const m = t.tx_date.slice(0, 7);
+      cnt.set(m, (cnt.get(m) || 0) + 1);
+    }
+    A.SPOUSE_RECORDED = new Set([...cnt.entries()].filter(([, v]) => v >= 3).map(([m]) => m));
+  }
+
+  $('#personSeg')?.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#personSeg button').forEach(x => x.classList.toggle('on', x === b));
+    person = b.dataset.p; renderAll();
+  });
 
   function renderAll() {
     if (!TX.length) return;
+    applyPerson();
     renderMonthNav();
     if (view === 'home') renderHome();
     if (view === 'ledger') renderLedger();
+    if (view === 'budget') renderBudget();
     if (view === 'coupang') renderCoupang();
     if (view === 'fixed') renderFixedTab();
     if (view === 'analysis') renderAnalysis();
     if (view === 'income') renderIncome();
+    if (view === 'expense') renderExpense();
     if (view === 'work') renderWork();
     if (view === 'info') renderInfo();
   }
@@ -252,7 +292,7 @@
         <span class="vl num">${fmt(c.amount)}</span></div>`).join('');
 
     // 2인 가구 비교 (최근 6개월 평균)
-    const M = A.monthlyAverage(TX, 6);
+    const M = A.monthlyAverage(VTX, 6);
     const myTotal = C.BENCH_CATEGORIES.reduce((a, k) => a + (M.avgByCategory[k] || 0), 0);
     const pct = Math.round((myTotal / BENCH.totalConsumption - 1) * 100);
     $('#benchDesc').innerHTML =
@@ -272,7 +312,7 @@
     }).join('');
 
     // 진단
-    const { advice, totalSave } = A.buildAdvice(TX, BENCH);
+    const { advice, totalSave } = A.buildAdvice(VTX, BENCH);
     $('#adviceHead').innerHTML = totalSave > 0
       ? `제안을 다 실행하면 <b style="color:var(--income)">월 ${man(totalSave)} · 연 ${man(totalSave * 12)}</b> 절약할 수 있습니다.`
       : '최근 6개월 기준 진단입니다.';
@@ -348,8 +388,10 @@
 
   // 거래 상세 (탭하면 카테고리/업무 변경)
   $('#ledgerList').addEventListener('click', async e => {
-    const r = e.target.closest('.row'); if (!r || !canWrite()) return;
-    const t = TX.find(x => x.id === +r.dataset.id); if (!t || t.kind === 'income') return;
+    const r = e.target.closest('.row'); if (!r) return;
+    const t = TX.find(x => x.id === +r.dataset.id);
+    if (!t || t.kind === 'income') return;
+    if (!canEdit(t)) { toast(`${ownerOf(t)}님 항목이라 수정할 수 없습니다`); return; }
     const cats = C.CATEGORIES;
     const cur = cats.indexOf(t.category);
     const ans = prompt(
@@ -364,11 +406,121 @@
     renderLedger();
   });
 
-  /* ================= 쿠팡 ================= */
+  /* ---------- 날짜 유틸 ---------- */
   const pad2 = n => String(n).padStart(2, '0');
   const ymShift = (ym, k) => { const [y, m] = ym.split('-').map(Number);
     const d = new Date(y, m - 1 + k, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
   const todayYM = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+
+  /* ================= 생활비 예산 ================= */
+  $('#bgForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const v = Math.max(0, +$('#bgAmt').value || 0);
+    if (!v) return;
+    BUDGET = Object.assign({}, BUDGET, { amount: v });
+    await S.setSetting('budget', BUDGET);
+    renderBudget(); toast(`생활비 예산 ${fmt(v)} 저장`);
+  });
+  $('#bgMore')?.addEventListener('click', () => { bgLimit += 60; renderBudget(); });
+
+  function renderBudget() {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+    const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const today = now.getDate();
+
+    const rows = VTX.filter(t => t.tx_date.slice(0, 7) === ym && isBudgetTx(t));
+    const used = rows.reduce((a, t) => a + t.amount, 0);
+    const amount = +BUDGET.amount || 0;
+    const left = amount - used;
+    const pacePct = today / dim * 100;
+    const usedPct = amount ? used / amount * 100 : 0;
+
+    $('#bgAmt').value = amount || '';
+    $('#bgTitle').textContent = `${now.getMonth() + 1}월 생활비 · ${today}일차 / ${dim}일`;
+    $('#bgLeft').textContent = fmt(left);
+    $('#bgLeft').style.color = left < 0 ? 'var(--expense)' : 'var(--ink)';
+    $('#bgSub').innerHTML = left >= 0
+      ? `남은 ${dim - today + 1}일 동안 하루 <b>${fmt(left / Math.max(1, dim - today + 1))}</b> 까지 가능`
+      : `예산을 <b class="up">${fmt(-left)}</b> 넘겼습니다`;
+    $('#bgBar').style.width = Math.min(100, usedPct) + '%';
+    $('#bgBar').style.background = usedPct > pacePct + 8 ? 'var(--expense)' : 'var(--accent)';
+    $('#bgPace').style.left = Math.min(100, pacePct) + '%';
+    $('#bgUsed').textContent = `사용 ${fmt(used)} (${usedPct.toFixed(0)}%)`;
+    $('#bgBudget').textContent = `예산 ${fmt(amount)}`;
+    const gap = usedPct - pacePct;
+    $('#bgPaceMsg').innerHTML = Math.abs(gap) < 5
+      ? '지금 페이스는 예산과 비슷합니다.'
+      : (gap > 0
+          ? `날짜 기준(${pacePct.toFixed(0)}%)보다 <b class="up">${gap.toFixed(0)}%p 빠르게</b> 쓰고 있습니다. 이대로면 월말 ${fmt(used / Math.max(1, today) * dim)} 예상.`
+          : `날짜 기준(${pacePct.toFixed(0)}%)보다 <b class="down">${(-gap).toFixed(0)}%p 여유</b> 있습니다. 이대로면 월말 ${fmt(used / Math.max(1, today) * dim)} 예상.`);
+
+    // 지난달 같은 날까지 비교
+    const prevYm = ymShift(ym, -1);
+    const prevSame = VTX.filter(t => t.tx_date.slice(0, 7) === prevYm &&
+      +t.tx_date.slice(8, 10) <= today && isBudgetTx(t)).reduce((a, t) => a + t.amount, 0);
+    const stat = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#bgStats').innerHTML =
+      stat('오늘까지 사용', fmt(used), `${rows.length}건`, 'var(--ink)') +
+      stat('하루 평균', fmt(used / Math.max(1, today)), `월말 예상 ${man(used / Math.max(1, today) * dim)}`, 'var(--accent)') +
+      stat('지난달 같은 날', fmt(prevSame), prevSame ? `${used > prevSame ? '+' : ''}${man(used - prevSame)}` : '비교 없음', 'var(--purple)') +
+      stat('남은 예산', fmt(left), `${Math.max(0, dim - today + 1)}일 남음`, left < 0 ? 'var(--expense)' : 'var(--income)');
+
+    // 어디에 썼나 (가맹점 그룹)
+    const byMer = new Map();
+    for (const t of rows) {
+      const key = t.merchant;
+      const o = byMer.get(key) || { name: key, amount: 0, count: 0, cat: t.category, sub: t.subcategory };
+      o.amount += t.amount; o.count++; byMer.set(key, o);
+    }
+    const list = [...byMer.values()].sort((a, b) => b.amount - a.amount);
+    $('#bgWhereDesc').textContent = list.length ? `${list.length}곳 · 합계 ${fmt(used)}` : '이번 달 생활비 지출이 아직 없습니다.';
+    $('#bgWhere').innerHTML = list.slice(0, 20).map(m => `
+      <div class="row"><div class="ic">${C.iconOf(m.cat, m.sub)}</div>
+        <div class="tx"><div class="t1">${esc(m.name)}</div>
+          <div class="t2">${m.sub || m.cat} · ${m.count}건</div></div>
+        <div class="amt num">${fmt(m.amount)}</div></div>`).join('');
+
+    // 날짜별
+    const days = Array.from({ length: dim }, (_, i) => i + 1);
+    const daily = days.map(dd => rows.filter(t => +t.tx_date.slice(8, 10) === dd).reduce((a, t) => a + t.amount, 0));
+    let cum = 0; const cumArr = daily.map(v => (cum += v));
+    drawChart('chBgDaily', {
+      data: { labels: days,
+        datasets: [
+          { type: 'bar', label: '일별', data: daily, backgroundColor: '#93c5fd', borderRadius: 3, order: 2 },
+          { type: 'line', label: '누적', data: cumArr.map((v, i) => i < today ? v : null),
+            borderColor: '#14b8a6', tension: .3, pointRadius: 0, borderWidth: 2, order: 1 },
+          { type: 'line', label: '예산 페이스', borderDash: [5, 4], borderColor: '#cbd5e1', pointRadius: 0,
+            borderWidth: 2, data: days.map(dd => amount / dim * dd), order: 0 }
+        ] },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 10.5 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
+    });
+
+    // 내역
+    const sorted = rows.sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+    const show = sorted.slice(0, bgLimit);
+    $('#bgMore').classList.toggle('hide', sorted.length <= bgLimit);
+    let html = '', last = '';
+    for (const t of show) {
+      if (t.tx_date !== last) {
+        last = t.tx_date;
+        const day = rows.filter(x => x.tx_date === t.tx_date).reduce((a, x) => a + x.amount, 0);
+        html += `<div class="day-sep"><span>${t.tx_date}</span><span class="ln"></span><span class="num">${fmt(day)}</span></div>`;
+      }
+      html += `<div class="row"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
+        <div class="tx"><div class="t1">${esc(t.merchant)}${t.source === 'sms' ? ' <span class="tag g">문자</span>' : ''}</div>
+          <div class="t2">${t.subcategory || t.category} · ${ownerOf(t)}</div></div>
+        <div class="amt num">${fmt(t.amount)}</div></div>`;
+    }
+    $('#bgList').innerHTML = html || '<p class="desc" style="margin:0;padding:10px 0">아직 사용 내역이 없습니다.</p>';
+  }
+
+  /* ================= 쿠팡 ================= */
   const cpMonths = () => [...new Set(CP.map(r => r.order_date.slice(0, 7)))].sort();
 
   function cpScoped() {
@@ -549,7 +701,7 @@
 
   function renderCpMatch() {
     const cardByM = new Map();
-    for (const t of TX) {
+    for (const t of VTX) {
       if (t.kind !== 'expense' || t.source !== 'samsung_card') continue;
       if (!/쿠팡/.test(t.merchant) || /와우|이츠/.test(t.merchant)) continue;
       const m = t.tx_date.slice(0, 7);
@@ -592,9 +744,12 @@
 
   /* ---------- 고정비 ---------- */
   const FX_CYCLES = ['매월', '격월', '분기', '반기', '연'];
+  const fixedScoped = () => person ? FIXED.filter(f => ownerOf(f) === person) : FIXED;
+
   function renderFixedTab() {
-    const PL = A.planSummary(FIXED), ed = canWrite();
-    const inc = A.incomeAvg(TX, /./, 6);
+    const LIST = fixedScoped();
+    const PL = A.planSummary(LIST), ed = canWrite();
+    const inc = A.incomeAvg(VTX, /./, 6);
     const vsInc = inc > 0 ? PL.total / inc * 100 : null;
 
     $('#fxTotal').textContent = fmt(PL.total);
@@ -628,19 +783,20 @@
     const cats = C.CATEGORIES.filter(c => c !== '미분류');
     $('#fxCat').innerHTML = cats.map(c => `<option>${c}</option>`).join('');
 
-    $('#tblFx tbody').innerHTML = FIXED.map(f => {
+    $('#tblFx tbody').innerHTML = LIST.map(f => {
       const per = (+f.amount || 0) / (A.CYCLE_DIV[f.cycle] || 1);
       const done = A.instDone(f);
       const inp = (cls, val, type, w) => `<input class="pill ${cls}" type="${type}" value="${esc(val ?? '')}" style="padding:5px 8px;font-size:12.5px;width:${w};border-radius:9px">`;
       const sel = (cls, opts, val) => `<select class="pill ${cls}" style="padding:5px 22px 5px 8px;font-size:12.5px;border-radius:9px">${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-      if (!ed) return `<tr class="${done ? 'off' : ''}"><td>${f.active === false ? '중지' : '사용'}</td><td>${esc(f.name)}</td>
+      const mine = canEdit(f);
+      if (!mine) return `<tr class="${done ? 'off' : ''}"><td>${f.active === false ? '중지' : '사용'}</td><td>${esc(f.name)} <span class="tag">${ownerOf(f)}</span></td>
         <td class="num">${fmt(+f.amount || 0)}</td><td>${f.cycle}</td><td>${f.kind}</td>
         <td>${f.kind === '할부' ? `${f.inst_now || 0}/${f.inst_total || 0}` : '—'}</td>
         <td><span class="tag">${f.category}</span></td><td>${esc(f.method || '')}</td>
         <td>${esc(f.memo || '')}</td><td class="num"><b>${fmt(per)}</b></td><td></td></tr>`;
       return `<tr data-id="${f.id}" class="${(f.active === false || done) ? 'off' : ''}">
         <td><input type="checkbox" class="fx-active" ${f.active === false ? '' : 'checked'}></td>
-        <td>${inp('fx-name', f.name, 'text', '150px')}</td>
+        <td>${inp('fx-name', f.name, 'text', '140px')} <span class="tag">${ownerOf(f)}</span></td>
         <td class="num">${inp('fx-amt', +f.amount || 0, 'number', '100px')}</td>
         <td>${sel('fx-cycle', FX_CYCLES, f.cycle)}</td>
         <td>${sel('fx-kind', ['고정', '할부'], f.kind)}</td>
@@ -656,16 +812,16 @@
     }).join('') || '<tr><td colspan="11" style="color:var(--muted)">등록된 고정비가 없습니다.</td></tr>';
 
     // 자동 감지
-    const recur = A.recurringMerchants(TX, 6, 4);
-    const keys = new Set(A.effectiveMonths(TX).slice(-6));
+    const recur = A.recurringMerchants(VTX, 6, 4);
+    const keys = new Set(A.effectiveMonths(VTX).slice(-6));
     const agg = new Map();
-    for (const t of TX) {
+    for (const t of VTX) {
       if (!A.isHouseholdExpense(t) || !recur.has(t.merchant)) continue;
       if (!keys.has(t.tx_date.slice(0, 7))) continue;
       const o = agg.get(t.merchant) || { merchant: t.merchant, category: t.category, sub: t.subcategory, amount: 0, ms: new Set() };
       o.amount += t.amount; o.ms.add(t.tx_date.slice(0, 7)); agg.set(t.merchant, o);
     }
-    const known = FIXED.map(f => (f.match || f.name));
+    const known = LIST.map(f => (f.match || f.name));
     $('#tblFxDetect tbody').innerHTML = [...agg.values()]
       .filter(o => !known.some(k => k && (o.merchant.includes(k) || k.includes(o.merchant))))
       .sort((a, b) => b.amount - a.amount)
@@ -707,7 +863,8 @@
     e.preventDefault();
     await S.insertFixed([{ name: $('#fxName').value, amount: +$('#fxAmt').value || 0,
       cycle: $('#fxCycle').value, kind: $('#fxKind').value, category: $('#fxCat').value,
-      method: $('#fxMethod').value, match: $('#fxName').value, memo: '', active: true, sort: FIXED.length }]);
+      method: $('#fxMethod').value, match: $('#fxName').value, memo: '', active: true,
+      owner: USER.name, sort: FIXED.length }]);
     $('#fxName').value = ''; $('#fxAmt').value = ''; $('#fxMethod').value = '';
     FIXED = await S.listFixed(); renderFixedTab(); toast('추가되었습니다');
   });
@@ -715,7 +872,8 @@
     if (!e.target.classList.contains('fx-add')) return;
     const tr = e.target.closest('tr');
     await S.insertFixed([{ name: tr.dataset.m, amount: +tr.dataset.a, cycle: '매월', kind: '고정',
-      category: tr.dataset.c, method: '', match: tr.dataset.m, memo: '자동 감지', active: true, sort: FIXED.length }]);
+      category: tr.dataset.c, method: '', match: tr.dataset.m, memo: '자동 감지', active: true,
+      owner: USER.name, sort: FIXED.length }]);
     FIXED = await S.listFixed(); renderFixedTab(); toast('고정비에 추가했습니다');
   });
 
@@ -736,7 +894,7 @@
     const n = anRange || months.length;
 
     /* 고정비 vs 변동비 */
-    const F = A.fixedSummary(TX, n);
+    const F = A.fixedSummary(VTX, n);
     $('#fixDesc').innerHTML = `최근 <b>${F.months}개월</b> 실제 지출 기준 월평균입니다.`;
     const t2 = (n2, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n2}</div>
       <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
@@ -758,7 +916,7 @@
     });
 
     /* 쿠팡 · 마트 · 배달 */
-    const sum = A.focusSummary(TX, n);
+    const sum = A.focusSummary(VTX, n);
     $('#focusDesc').innerHTML = `최근 <b>${n}개월</b> 월평균 · 직전 ${n}개월과 비교`;
     $('#focusTiles').innerHTML = sum.map(r => {
       const up = r.delta > 0;
@@ -778,7 +936,7 @@
         <div class="avg" style="left:${av / max * 100}%"></div></div></div>`;
     };
     $('#focusBench').innerHTML = bar('장보기 합계', gNow, gB) + bar('배달', dNow, dB);
-    const fm = A.focusMonthly(TX);
+    const fm = A.focusMonthly(VTX);
     const fk = fm.months.slice(-18), fo = fm.months.length - fk.length;
     drawChart('chFocus', {
       type: 'line',
@@ -796,7 +954,7 @@
     if ($('#trendCat').options.length <= 1)
       $('#trendCat').innerHTML = '<option value="">전체 카테고리</option>' + cats.map(c => `<option>${c}</option>`).join('');
     const cat = $('#trendCat').value;
-    const src = cat ? TX.filter(t => t.category === cat || t.kind === 'income') : TX;
+    const src = cat ? VTX.filter(t => t.category === cat || t.kind === 'income') : VTX;
     const lim = gran === 'day' ? 60 : gran === 'week' ? 40 : gran === 'month' ? 24 : 10;
     const s = A.seriesByPeriod(src, gran).slice(-lim);
     drawChart('chTrend', {
@@ -811,13 +969,13 @@
         scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
     });
 
-    const top8 = A.byCategory(TX).slice(0, 8).map(c => c.category);
-    const keys2 = [...new Set(TX.filter(t => t.kind === 'expense').map(t => A.periodKey(t.tx_date, gran)))].sort().slice(-lim);
+    const top8 = A.byCategory(VTX).slice(0, 8).map(c => c.category);
+    const keys2 = [...new Set(VTX.filter(t => t.kind === 'expense').map(t => A.periodKey(t.tx_date, gran)))].sort().slice(-lim);
     drawChart('chStack', {
       type: 'bar',
       data: { labels: keys2.map(k => A.periodLabel(k, gran)),
         datasets: top8.map(c => ({ label: c, backgroundColor: C.CAT_COLORS[c],
-          data: keys2.map(k => TX.filter(t => A.isHouseholdExpense(t) && t.category === c && A.periodKey(t.tx_date, gran) === k)
+          data: keys2.map(k => VTX.filter(t => A.isHouseholdExpense(t) && t.category === c && A.periodKey(t.tx_date, gran) === k)
             .reduce((a, t) => a + t.amount, 0)) })) },
       options: { maintainAspectRatio: false,
         plugins: { legend: { labels: { boxWidth: 9, font: { size: 10.5 } } },
@@ -852,7 +1010,7 @@
           const res = await S.insertCoupang(rows);
           say(`  → ${type} · ${rows.length}건 인식 / 신규 ${res.inserted} 저장 / 중복 ${res.skipped} 건너뜀`);
         } else {
-          const clean = rows.map(r => { const { _workHint, ...rest } = r; return rest; });
+          const clean = rows.map(r => { const { _workHint, ...rest } = r; return Object.assign(rest, { owner: USER.name }); });
           const res = await S.insertTx(clean);
           say(`  → ${type} · ${rows.length}건 인식 / 신규 ${res.inserted} 저장 / 중복 ${res.skipped} 건너뜀`);
         }
@@ -906,7 +1064,7 @@
       if (!d || !amt) throw new Error('날짜와 금액을 입력하세요.');
       await S.insertTx([{ kind: 'income', source: 'manual', tx_date: d, merchant: src, amount: amt,
         raw_amount: amt, benefit: 0, category: '수입', subcategory: src, income_src: src, is_work: false,
-        installment: '', bill_month: null, memo: $('#incMemo').value,
+        installment: '', bill_month: null, memo: $('#incMemo').value, owner: USER.name,
         fingerprint: `manual|in|${d}|${src}|${amt}|${Date.now()}` }]);
       $('#incAmt').value = ''; $('#incMemo').value = '';
       await reload(); go('income'); toast('수입 저장 완료');
@@ -916,12 +1074,13 @@
   function renderIncome() {
     if (!$('#incSrc').options.length) $('#incSrc').innerHTML = CFG.INCOME_SOURCES.map(s => `<option>${s}</option>`).join('');
     if (!$('#incDate').value) $('#incDate').value = new Date().toISOString().slice(0, 10);
-    const inc = TX.filter(A.isIncome).sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+    const inc = VTX.filter(A.isIncome).sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
     $('#incomeList').innerHTML = inc.slice(0, 40).map(t => `
       <div class="row" data-id="${t.id}"><div class="ic">💰</div>
-        <div class="tx"><div class="t1">${esc(t.income_src || t.merchant)}</div><div class="t2">${t.tx_date}</div></div>
+        <div class="tx"><div class="t1">${esc(t.income_src || t.merchant)}</div>
+          <div class="t2">${t.tx_date} · ${ownerOf(t)}</div></div>
         <div class="amt num in">+${fmt(t.amount)}</div>
-        ${canWrite() ? '<button class="btn ghost sm inc-del" style="margin-left:8px">삭제</button>' : ''}</div>`).join('')
+        ${canEdit(t) ? '<button class="btn ghost sm inc-del" style="margin-left:8px">삭제</button>' : ''}</div>`).join('')
       || '<p class="desc" style="margin:0;padding:10px 0">기록된 수입이 없습니다.</p>';
 
     const keys = [...new Set(inc.map(t => t.tx_date.slice(0, 7)))].sort();
@@ -946,9 +1105,51 @@
     await S.deleteTx(id); TX = TX.filter(t => t.id !== id); renderIncome(); toast('삭제됨');
   });
 
+  /* ---------- 지출 직접 입력 ---------- */
+  function renderExpense() {
+    $('#expWho').textContent = USER ? USER.name : '';
+    if (!$('#expCat').options.length)
+      $('#expCat').innerHTML = C.CATEGORIES.filter(c => c !== '미분류' && c !== '업무비용')
+        .map(c => `<option>${c}</option>`).join('');
+    if (!$('#expDate').value) $('#expDate').value = new Date().toISOString().slice(0, 10);
+
+    const mine = TX.filter(t => t.kind === 'expense' && t.source === 'manual' && canEdit(t))
+      .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1).slice(0, 60);
+    $('#expenseList').innerHTML = mine.map(t => `
+      <div class="row" data-id="${t.id}"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
+        <div class="tx"><div class="t1">${esc(t.merchant)}</div>
+          <div class="t2">${t.tx_date} · ${t.category}${t.subcategory ? ' › ' + esc(t.subcategory) : ''} · ${ownerOf(t)}</div></div>
+        <div class="amt num">${fmt(t.amount)}</div>
+        <button class="btn ghost sm exp-del" style="margin-left:8px">삭제</button></div>`).join('')
+      || '<p class="desc" style="margin:0;padding:10px 0">직접 넣은 지출이 없습니다.</p>';
+  }
+
+  $('#expenseForm')?.addEventListener('submit', async e => {
+    e.preventDefault(); $('#expErr').textContent = '';
+    try {
+      const d = $('#expDate').value, amt = +$('#expAmt').value, nm = $('#expName').value.trim();
+      if (!d || !amt || !nm) throw new Error('날짜 · 금액 · 내용을 입력하세요.');
+      await S.insertTx([{
+        kind: 'expense', source: 'manual', tx_date: d, merchant: nm, amount: amt, raw_amount: amt,
+        benefit: 0, category: $('#expCat').value, subcategory: $('#expSub').value.trim(),
+        income_src: null, is_work: false, installment: '', bill_month: null,
+        memo: $('#expMethod').value.trim(), owner: USER.name,
+        fingerprint: `manual|out|${d}|${nm}|${amt}|${Date.now()}`
+      }]);
+      $('#expAmt').value = ''; $('#expName').value = ''; $('#expSub').value = '';
+      await reload(); go('expense'); toast('지출 저장 완료');
+    } catch (err) { $('#expErr').textContent = err.message; }
+  });
+  $('#expenseList')?.addEventListener('click', async e => {
+    if (!e.target.classList.contains('exp-del')) return;
+    const id = +e.target.closest('.row').dataset.id;
+    if (!confirm('삭제할까요?')) return;
+    await S.deleteTx(id); TX = TX.filter(t => t.id !== id); applyPerson(); renderExpense(); toast('삭제됨');
+  });
+
   /* ---------- 업무비용 ---------- */
   function renderWork() {
-    const tagged = TX.filter(t => t.is_work).reduce((a, t) => a + t.amount, 0);
+    const tagged = VTX.filter(t => t.is_work).reduce((a, t) => a + t.amount, 0);
     const paid = CLAIMS.filter(c => c.status === '환급완료').reduce((a, c) => a + (+c.amount || 0), 0);
     const open = CLAIMS.filter(c => c.status !== '환급완료').reduce((a, c) => a + (+c.amount || 0), 0);
     const st = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
@@ -967,7 +1168,7 @@
       <td>${ed ? '<button class="btn ghost sm js-c-del">삭제</button>' : ''}</td></tr>`).join('')
       || '<tr><td colspan="6" style="color:var(--muted)">등록된 기안이 없습니다.</td></tr>';
 
-    const cand = TX.filter(t => t.kind === 'expense' &&
+    const cand = VTX.filter(t => t.kind === 'expense' &&
       (t.is_work || /Google \(제미나이|네이버파이낸셜|microsoft|오피스/i.test(t.merchant)))
       .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1).slice(0, 200);
     $('#tblWorkCand tbody').innerHTML = cand.map(t => `
@@ -1011,10 +1212,10 @@
   /* ---------- 정보 ---------- */
   function renderInfo() {
     const bySrc = {};
-    for (const t of TX) bySrc[t.source] = (bySrc[t.source] || 0) + 1;
+    for (const t of VTX) bySrc[t.source] = (bySrc[t.source] || 0) + 1;
     $('#infoBody').innerHTML = `
       <b>기간</b> ${months[0] || '—'} ~ ${months[months.length - 1] || '—'}<br>
-      <b>거래</b> ${TX.length.toLocaleString()}건 · 고정비 ${FIXED.length}개 · 기안 ${CLAIMS.length}건 · 쿠팡 상품 ${CP.length.toLocaleString()}건<br>
+      <b>거래</b> ${VTX.length.toLocaleString()}건 · 고정비 ${FIXED.length}개 · 기안 ${CLAIMS.length}건 · 쿠팡 상품 ${CP.length.toLocaleString()}건<br>
       <b>출처</b> ${Object.entries(bySrc).map(([k, v]) => `${srcLabel(k)} ${v.toLocaleString()}`).join(' · ')}<br>
       <b>저장</b> ${S.ONLINE ? 'Supabase (두 기기 공유)' : '이 브라우저에만 저장 (오프라인 모드)'}<br><br>
       <span style="color:var(--muted)">2025년은 기존 가계부 시트를 옮겨온 월 단위 집계라 가맹점 상세와 수입 기록이 없습니다.
