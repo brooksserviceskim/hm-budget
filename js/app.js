@@ -11,12 +11,14 @@
   let USER = null, TX = [], VTX = [], CLAIMS = [], FIXED = [], CP = [], BENCH = null;
   let person = '';   // '' = 2인 합계, 아니면 사람 이름
   let BUDGET = { amount: 1000000, startDay: 1 };
+  let INCOME_FIXED = { '김현우': 5090000, '홍미란': 2500000 };
+  let EVENTS = [];
   let bgLimit = 40;
   // 생활비로 볼 하위분류
   const BUDGET_SUBS = new Set(['쿠팡', '마트/장보기', '편의점', '기타식품',
                                '배달', '카페', '베이커리/간식', '외식', '패스트푸드',
-                               '온라인/백화점', '간편결제']);
-  const BUDGET_CATS = new Set(['식료품·비주류음료', '음식·숙박']);
+                               '온라인/백화점', '간편결제', '생활용품', '세탁/청소']);
+  const BUDGET_CATS = new Set(['식료품·비주류음료', '음식·숙박', '가정용품·가사서비스']);
   function isBudgetTx(t) {
     if (!A.isHouseholdExpense(t)) return false;
     const m = t.memo || '';
@@ -135,6 +137,8 @@
       FIXED = await S.listFixed();
     }
     BUDGET = await S.getSetting('budget', { amount: 1000000, startDay: 1 }).catch(() => BUDGET);
+    INCOME_FIXED = await S.getSetting('income_fixed', INCOME_FIXED).catch(() => INCOME_FIXED);
+    EVENTS = await S.listEvents().catch(() => []);
     CP = await S.listCoupang().catch(() => []);
     if (!CP.length && isAdmin() && window.__COUPANG__?.length) {
       await S.insertCoupang(window.__COUPANG__);
@@ -507,6 +511,7 @@
 
   /* ---------- 날짜 유틸 ---------- */
   const pad2 = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   const ymShift = (ym, k) => { const [y, m] = ym.split('-').map(Number);
     const d = new Date(y, m - 1 + k, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
   const todayYM = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
@@ -949,7 +954,274 @@
   const FX_CYCLES = ['매월', '격월', '분기', '반기', '연'];
   const fixedScoped = () => person ? FIXED.filter(f => ownerOf(f) === person) : FIXED;
 
+  /** 사람별 월평균 수입 — 실제 입력이 2개월 이상이면 그 평균, 아니면 설정값 */
+  const REGULAR_INCOME = /급여|사업소득|상여|성과급/;
+  function avgIncomeOf(name) {
+    const rows = TX.filter(t => A.isIncome(t) && ownerOf(t) === name &&
+      REGULAR_INCOME.test(t.income_src || t.subcategory || ''));
+    const byM = new Map();
+    for (const t of rows) {
+      const m = t.tx_date.slice(0, 7);
+      byM.set(m, (byM.get(m) || 0) + t.amount);
+    }
+    const keys = [...byM.keys()].sort().slice(-6);
+    if (keys.length >= 2) {
+      const sum = keys.reduce((a, k) => a + byM.get(k), 0);
+      return { value: Math.round(sum / keys.length), auto: true, months: keys.length };
+    }
+    return { value: +INCOME_FIXED[name] || 0, auto: false, months: keys.length };
+  }
+
+  function renderCashflow() {
+    const k = avgIncomeOf('김현우'), m = avgIncomeOf('홍미란');
+    $('#incK').value = k.auto ? '' : (+INCOME_FIXED['김현우'] || '');
+    $('#incM').value = m.auto ? '' : (+INCOME_FIXED['홍미란'] || '');
+    $('#incK').placeholder = k.auto ? `자동 ${fmt(k.value)}` : '5090000';
+    $('#incM').placeholder = m.auto ? `자동 ${fmt(m.value)}` : '2500000';
+    $('#cfIncNote').innerHTML = (k.auto || m.auto)
+      ? `<b>급여·사업소득</b> 기록에서 최근 ${Math.max(k.months, m.months)}개월 평균을 계산했습니다. ` +
+        `보험금·업무비용 환급처럼 일시적인 입금은 제외합니다. 아래에 직접 입력하면 그 값이 우선합니다.`
+      : `아직 급여 기록이 적어 설정값을 씁니다. 수입을 2개월 이상 입력하면 <b>자동으로 평균이 계산</b>됩니다.`;
+
+    const income = k.value + m.value;
+    const PL = A.planSummary(FIXED);
+    const fixed = PL.total;
+    const living = +BUDGET.amount || 0;
+    const save = income - fixed - living - (fundState().gap < 0 ? Math.ceil(Math.abs(fundState().gap) / 12 / 1000) * 1000 : 0);
+
+    const row = (label, val, cls, sub) => `<div class="bench" style="padding:9px 0">
+      <div class="hd"><span class="nm">${label}</span>
+        <span class="vl num ${cls || ''}">${val < 0 ? '' : (cls === 'minus' ? '− ' : '')}${fmt(Math.abs(val))}</span></div>
+      ${sub ? `<div class="cap" style="margin-top:2px">${sub}</div>` : ''}</div>`;
+
+    const f = fundState();
+    const evMonthly = f.gap < 0 ? Math.ceil(Math.abs(f.gap) / 12 / 1000) * 1000 : 0;
+
+    $('#cfRows').innerHTML =
+      row('고정 수입', income, '', `김현우 ${man(k.value)}${k.auto ? '(자동)' : ''} · 홍미란 ${man(m.value)}${m.auto ? '(자동)' : ''}`) +
+      row('고정비', fixed, 'minus', `매월 ${man(PL.monthlyTotal)}${PL.instTotal ? ` + 할부 ${man(PL.instTotal)}` : ''}`) +
+      row('생활비 예산', living, 'minus', '생활비 탭에서 변경') +
+      (evMonthly ? row('경조사 적립 권장', evMonthly, 'minus',
+        `1년 예정 ${man(f.upcoming)} 대비 ${man(Math.abs(f.gap))} 부족`) : '');
+
+    $('#cfSave').textContent = fmt(save);
+    $('#cfSave').style.color = save < 0 ? 'var(--expense)' : 'var(--income)';
+    $('#cfSaveSub').innerHTML = income > 0
+      ? `수입의 <b>${(save / income * 100).toFixed(0)}%</b>` +
+        (save > 0 ? ` · 연 ${man(save * 12)} 모을 수 있습니다` : ' · 지출이 수입을 넘습니다')
+      : '';
+
+    const tot = Math.max(1, income);
+    $('#cfBar1').style.width = Math.max(0, fixed / tot * 100) + '%';
+    $('#cfBar2').style.width = Math.max(0, living / tot * 100) + '%';
+    $('#cfBar3').style.width = Math.max(0, save / tot * 100) + '%';
+    $('#cfBar2').style.width = Math.max(0, (living + evMonthly) / tot * 100) + '%';
+  }
+
+  $('#cfIncForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const v = Object.assign({}, INCOME_FIXED);
+    if ($('#incK').value) v['김현우'] = +$('#incK').value;
+    if ($('#incM').value) v['홍미란'] = +$('#incM').value;
+    INCOME_FIXED = v;
+    await S.setSetting('income_fixed', v);
+    renderCashflow(); toast('고정 수입 저장');
+  });
+
+  /* ---------- 경조사 · 이벤트 ---------- */
+  const EV_ICON = { '경조사': '💐', '명절': '🎎', '가족용돈': '🧧', '기념일': '🎂', '기타': '📌' };
+
+  /** 매년 반복 항목은 올해/내년 날짜로 환산 */
+  const lunarOf = e => {
+    const m = /LUNAR:(\d+):(\d+):(\d)/.exec(e.memo || '');
+    return m ? { m: +m[1], d: +m[2], leap: m[3] === '1' } : null;
+  };
+
+  function upcomingEvents(months) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const limit = new Date(today); limit.setMonth(limit.getMonth() + (months || 12));
+    const out = [];
+    for (const e of EVENTS) {
+      if (e.done || FUND_KINDS.has(e.kind)) continue;
+      const lu = lunarOf(e);
+      let d = new Date(e.ev_date + 'T00:00:00');
+      if (lu && e.yearly && window.LunarKit) {
+        const s2 = window.LunarKit.nextSolar(lu.m, lu.d, lu.leap);
+        if (s2) d = new Date(s2 + 'T00:00:00');
+      } else if (e.yearly) {
+        d.setFullYear(today.getFullYear());
+        if (d < today) d.setFullYear(today.getFullYear() + 1);
+      }
+      if (d < today || d > limit) continue;
+      out.push(Object.assign({}, e, { _d: d, _ym: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}` }));
+    }
+    return out.sort((a, b) => a._d - b._d);
+  }
+
+  /* ---------- 경조사비 통장 ---------- */
+  // 적립·사용 기록은 events 테이블에 kind='적립' / '사용' 으로 저장
+  const FUND_KINDS = new Set(['적립', '사용']);
+  const fundRows = () => EVENTS.filter(e => FUND_KINDS.has(e.kind))
+    .sort((a, b) => a.ev_date < b.ev_date ? 1 : -1);
+
+  function fundState() {
+    let inSum = 0, outSum = 0;
+    for (const e of EVENTS) {
+      if (e.kind === '적립') inSum += +e.amount || 0;
+      else if (e.kind === '사용') outSum += +e.amount || 0;
+    }
+    const upcoming = upcomingEvents(12).reduce((a, e) => a + (+e.amount || 0), 0);
+    const bal = inSum - outSum;
+    return { inSum, outSum, bal, upcoming, gap: bal - upcoming };
+  }
+
+  function renderFund() {
+    const f = fundState();
+    $('#evBal').textContent = fmt(f.bal);
+    $('#evBal').style.color = f.bal < 0 ? 'var(--expense)' : 'var(--ink)';
+    $('#evBalSub').innerHTML = f.upcoming > 0
+      ? (f.gap >= 0
+          ? `앞으로 1년 예정액 <b>${fmt(f.upcoming)}</b> 을 감당할 수 있습니다 · <b class="down">${fmt(f.gap)} 여유</b>`
+          : `앞으로 1년 예정액이 <b>${fmt(f.upcoming)}</b> 입니다 · <b class="up">${fmt(-f.gap)} 부족</b>`)
+      : '예정된 경조사가 없습니다.';
+    const max = Math.max(f.bal, f.upcoming, 1);
+    $('#evBalBar').style.width = Math.max(0, Math.min(100, f.bal / max * 100)) + '%';
+    $('#evBalBar').style.background = f.gap >= 0 ? 'var(--accent)' : 'var(--expense)';
+    $('#evBalL').textContent = `잔액 ${fmt(f.bal)}`;
+    $('#evBalR').textContent = `필요 ${fmt(f.upcoming)}`;
+
+    const stat = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    const months = new Set(EVENTS.filter(e => e.kind === '적립').map(e => e.ev_date.slice(0, 7))).size || 1;
+    $('#evStats').innerHTML =
+      stat('총 적립', fmt(f.inSum), `${months}개월 · 월평균 ${man(f.inSum / months)}`, 'var(--income)') +
+      stat('총 사용', fmt(f.outSum), `${EVENTS.filter(e => e.kind === '사용').length}건`, 'var(--expense)') +
+      stat('예정 경조사', fmt(f.upcoming), '앞으로 1년', 'var(--purple)') +
+      stat(f.gap >= 0 ? '여유' : '부족', fmt(Math.abs(f.gap)),
+           f.gap >= 0 ? '준비 완료' : `월 ${man(Math.abs(f.gap) / 12)} 씩 모으면 해결`,
+           f.gap >= 0 ? 'var(--income)' : 'var(--expense)');
+
+    $('#evFundList').innerHTML = fundRows().slice(0, 20).map(e => `
+      <div class="row" data-ev="${e.id}">
+        <div class="ic">${e.kind === '적립' ? '🐷' : '💸'}</div>
+        <div class="tx"><div class="t1">${esc(e.title || e.kind)}</div>
+          <div class="t2">${e.ev_date} · ${e.kind}</div></div>
+        <div class="amt num ${e.kind === '적립' ? 'in' : ''}">${e.kind === '적립' ? '+' : '−'}${fmt(+e.amount || 0)}</div>
+        ${canWrite() ? '<button class="btn ghost sm ev-del" style="margin-left:6px">삭제</button>' : ''}</div>`).join('')
+      || '<p class="desc" style="margin:0;padding:10px 0">적립 기록이 없습니다.</p>';
+  }
+
+  $('#evFundForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const kind = $('#efType').value === 'in' ? '적립' : '사용';
+    const d = $('#efD').value || ymd(new Date()), a = +$('#efA').value;
+    if (!a) return;
+    await S.insertEvent({ ev_date: d, title: $('#efT').value.trim() || kind, amount: a,
+                          kind, yearly: false, done: true, memo: '', owner: USER.name });
+    $('#efA').value = ''; $('#efT').value = '';
+    EVENTS = await S.listEvents(); renderFund(); renderEvents(); renderCashflow();
+    toast(kind === '적립' ? '적립되었습니다' : '사용 기록됨');
+  });
+  $('#evFundList')?.addEventListener('click', async e => {
+    if (!e.target.classList.contains('ev-del')) return;
+    const id = +e.target.closest('[data-ev]').dataset.ev;
+    if (!confirm('삭제할까요?')) return;
+    await S.deleteEvent(id); EVENTS = await S.listEvents();
+    renderFund(); renderEvents(); renderCashflow(); toast('삭제됨');
+  });
+
+  function renderEvents() {
+    const up = upcomingEvents(12);
+    const total = up.reduce((a, e) => a + (+e.amount || 0), 0);
+    const byM = new Map();
+    for (const e of up) byM.set(e._ym, (byM.get(e._ym) || 0) + (+e.amount || 0));
+
+    $('#evSum').innerHTML = up.length
+      ? `앞으로 1년간 <b>${up.length}건 · ${fmt(total)}</b> 이 예정되어 있습니다. 미리 준비해 두세요.`
+      : '등록된 일정이 없습니다. 아래에서 추가하세요.';
+
+    const max = Math.max(1, ...byM.values());
+    $('#evMonths').innerHTML = [...byM.entries()].slice(0, 12).map(([ym, v]) => {
+      const [y, mm] = ym.split('-');
+      const soon = ym === todayYM();
+      return `<div class="bench" style="padding:8px 0">
+        <div class="hd"><span class="nm">${+mm}월${soon ? ' <span class="tag w">이번 달</span>' : ''}</span>
+          <span class="vl num">${fmt(v)}</span></div>
+        <div class="track"><div class="me" style="width:${v / max * 100}%;background:${soon ? 'var(--expense)' : 'var(--purple)'}"></div></div>
+      </div>`;
+    }).join('');
+
+    const rows = EVENTS.filter(e => !FUND_KINDS.has(e.kind)).sort((a, b) => a.ev_date < b.ev_date ? -1 : 1);
+    $('#evList').innerHTML = rows.map(e => {
+      const up1 = upcomingEvents(12).find(x => x.id === e.id);
+      const dd = up1 ? up1._d : new Date(e.ev_date + 'T00:00:00');
+      const left = Math.ceil((dd - new Date().setHours(0, 0, 0, 0)) / 86400000);
+      const lu = lunarOf(e);
+      return `<div class="row ${e.done ? 'work' : ''}" data-ev="${e.id}">
+        <div class="ic">${EV_ICON[e.kind] || '📌'}</div>
+        <div class="tx"><div class="t1">${esc(e.title)}${e.yearly ? ' <span class="tag">매년</span>' : ''}${lu ? ' <span class="tag">음력</span>' : ''}${e.done ? ' <span class="tag g">완료</span>' : ''}</div>
+          <div class="t2">${ymd(dd)}${lu ? ` (${window.LunarKit.label(lu.m, lu.d, lu.leap)})` : ''} · ${e.kind}${(!e.done && left >= 0) ? ` · D-${left}` : ''}</div></div>
+        <div class="amt num">${fmt(+e.amount || 0)}</div>
+        ${canWrite() ? `<button class="btn ghost sm ev-done" style="margin-left:6px">${e.done ? '되돌리기' : '완료'}</button>
+        <button class="btn ghost sm ev-del" style="margin-left:4px">삭제</button>` : ''}</div>`;
+    }).join('') || '';
+  }
+
+  $('#evCal')?.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#evCal button').forEach(x => x.classList.toggle('on', x === b));
+    const lunar = b.dataset.c === 'lunar';
+    $('#evD').classList.toggle('hide', lunar);
+    $('#evLunarBox').classList.toggle('hide', !lunar);
+    if (lunar && !$('#evLM').options.length) {
+      $('#evLM').innerHTML = Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">${i + 1}월</option>`).join('');
+      $('#evLD').innerHTML = Array.from({ length: 30 }, (_, i) => `<option value="${i + 1}">${i + 1}일</option>`).join('');
+    }
+  });
+
+  $('#evForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const isLunar = $('#evCal button.on')?.dataset.c === 'lunar';
+    const t = $('#evT').value.trim(), a = +$('#evA').value;
+    if (!t || !a) return;
+    let d, memo = '';
+    if (isLunar) {
+      const lm = +$('#evLM').value, ld = +$('#evLD').value, leap = $('#evLeap').checked;
+      d = window.LunarKit.nextSolar(lm, ld, leap);
+      if (!d) { toast('그 음력 날짜를 변환할 수 없습니다'); return; }
+      memo = `LUNAR:${lm}:${ld}:${leap ? 1 : 0}`;
+    } else {
+      d = $('#evD').value;
+      if (!d) return;
+    }
+    await S.insertEvent({ ev_date: d, title: t, amount: a, kind: $('#evK').value,
+                          yearly: $('#evY').checked, done: false, memo, owner: USER.name });
+    $('#evT').value = ''; $('#evA').value = ''; $('#evY').checked = false;
+    EVENTS = await S.listEvents(); renderEvents(); toast('일정이 추가되었습니다');
+  });
+  $('#evList')?.addEventListener('click', async e => {
+    const tr = e.target.closest('[data-ev]'); if (!tr) return;
+    const id = +tr.dataset.ev, ev = EVENTS.find(x => x.id === id); if (!ev) return;
+    if (e.target.classList.contains('ev-done')) {
+      const nowDone = !ev.done;
+      await S.updateEvent(id, { done: nowDone });
+      if (nowDone && confirm(`${ev.title} ${fmt(+ev.amount)}\n\n경조사비 통장에서 나간 것으로 기록할까요?`)) {
+        await S.insertEvent({ ev_date: ymd(new Date()), title: ev.title, amount: +ev.amount || 0,
+                              kind: '사용', yearly: false, done: true, memo: '', owner: USER.name });
+      }
+      EVENTS = await S.listEvents(); renderFund(); renderEvents(); renderCashflow();
+      toast(nowDone ? '완료 처리했습니다' : '되돌렸습니다');
+    } else if (e.target.classList.contains('ev-del')) {
+      if (!confirm('삭제할까요?')) return;
+      await S.deleteEvent(id); EVENTS = await S.listEvents(); renderEvents(); toast('삭제됨');
+    }
+  });
+
   function renderFixedTab() {
+    renderCashflow();
+    renderFund();
+    renderEvents();
+    if (!$('#efD').value) $('#efD').value = ymd(new Date());
     const LIST = fixedScoped();
     const PL = A.planSummary(LIST), ed = canWrite();
     const inc = A.incomeAvg(VTX, /./, 6);

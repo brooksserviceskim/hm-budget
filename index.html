@@ -145,6 +145,44 @@
 
     <!-- ---------- 고정비 ---------- -->
     <section id="v-fixed" class="view hide">
+
+      <!-- 현금흐름 요약 -->
+      <div class="card">
+        <h2>한 달 현금흐름</h2>
+        <p class="desc">고정 수입에서 고정비와 생활비를 빼면 저축할 수 있는 돈입니다.</p>
+        <div id="cfRows"></div>
+        <div style="border-top:2px solid var(--ink);margin-top:12px;padding-top:14px">
+          <div class="cap">저축 가능액</div>
+          <div class="big num" id="cfSave">—</div>
+          <div class="cap" id="cfSaveSub" style="margin-top:4px"></div>
+        </div>
+        <div class="track" style="margin-top:14px;height:12px;display:flex;overflow:hidden">
+          <div id="cfBar1" style="background:#64748b"></div>
+          <div id="cfBar2" style="background:#f59e0b"></div>
+          <div id="cfBar3" style="background:#14b8a6"></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">
+          <span class="cap"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#64748b"></i> 고정비</span>
+          <span class="cap"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#f59e0b"></i> 생활비</span>
+          <span class="cap"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#14b8a6"></i> 저축</span>
+        </div>
+      </div>
+
+      <!-- 고정 수입 설정 -->
+      <div class="card">
+        <h2>고정 수입</h2>
+        <p class="desc" id="cfIncNote">—</p>
+        <form id="cfIncForm" class="controls">
+          <div class="field" style="flex:1;min-width:130px;margin:0">
+            <label>김현우</label><input id="incK" class="pill" type="number" inputmode="numeric" style="width:100%">
+          </div>
+          <div class="field" style="flex:1;min-width:130px;margin:0">
+            <label>홍미란</label><input id="incM" class="pill" type="number" inputmode="numeric" style="width:100%">
+          </div>
+          <button class="btn acc sm" type="submit" style="align-self:flex-end">저장</button>
+        </form>
+      </div>
+
       <div class="card">
         <div class="cap">매달 나가는 고정비</div>
         <div class="big num" id="fxTotal">—</div>
@@ -183,6 +221,76 @@
             <th>분류</th><th>결제수단</th><th>메모</th><th class="num">월 환산</th><th>정리</th>
           </tr></thead><tbody></tbody></table>
         </div>
+      </div>
+
+      <!-- 경조사 적립 통장 -->
+      <div class="card">
+        <h2>경조사비 통장</h2>
+        <p class="desc">따로 모아두는 돈입니다. 예정된 경조사를 감당할 수 있는지 확인하세요.</p>
+        <div class="cap">현재 잔액</div>
+        <div class="big num" id="evBal">—</div>
+        <div class="cap" id="evBalSub" style="margin-top:6px"></div>
+        <div class="track" style="margin-top:14px;height:12px">
+          <div class="me" id="evBalBar" style="width:0%;background:var(--accent)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:7px">
+          <span class="cap" id="evBalL"></span><span class="cap" id="evBalR"></span>
+        </div>
+        <div class="hscroll" id="evStats" style="margin-top:16px"></div>
+
+        <details style="margin-top:14px">
+          <summary style="font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer">적립 · 사용 기록하기</summary>
+          <form id="evFundForm" class="controls" style="margin-top:10px">
+            <select class="pill" id="efType">
+              <option value="in">적립 (넣기)</option>
+              <option value="out">사용 (빼기)</option>
+            </select>
+            <input class="pill" id="efD" type="date" required style="flex:1;min-width:130px">
+            <input class="pill" id="efA" type="number" inputmode="numeric" placeholder="금액" required style="width:120px">
+            <input class="pill" id="efT" type="text" placeholder="내용 (예: 8월 적립)" style="flex:1;min-width:130px">
+            <button class="btn acc sm" type="submit">기록</button>
+          </form>
+          <p class="desc" style="margin:10px 0 0">
+            매달 일정액을 적립해두면 큰 경조사가 몰려도 생활비가 흔들리지 않습니다.
+            일정에서 <b>완료</b>를 누르면 사용 기록이 자동으로 남습니다.
+          </p>
+        </details>
+        <div id="evFundList" style="margin-top:12px"></div>
+      </div>
+
+      <!-- 경조사 캘린더 -->
+      <div class="card">
+        <h2>다가오는 경조사 · 이벤트</h2>
+        <p class="desc" id="evSum">—</p>
+        <div id="evMonths" style="margin-bottom:14px"></div>
+        <details>
+          <summary style="font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer">일정 추가</summary>
+          <form id="evForm" class="controls" style="margin-top:10px">
+            <div class="seg" id="evCal">
+              <button type="button" data-c="solar" class="on">양력</button>
+              <button type="button" data-c="lunar">음력</button>
+            </div>
+            <input class="pill" id="evD" type="date" style="flex:1;min-width:140px">
+            <span id="evLunarBox" class="hide" style="display:flex;gap:6px;align-items:center">
+              <select class="pill" id="evLM" style="width:88px"></select>
+              <select class="pill" id="evLD" style="width:88px"></select>
+              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;color:var(--ink2)">
+                <input type="checkbox" id="evLeap" style="width:16px;height:16px"> 윤달
+              </label>
+            </span>
+            <input class="pill" id="evT" type="text" placeholder="내용 (예: 김철수 결혼식)" required style="flex:2;min-width:160px">
+            <input class="pill" id="evA" type="number" inputmode="numeric" placeholder="금액" required style="width:120px">
+            <select class="pill" id="evK">
+              <option>경조사</option><option>명절</option><option>가족용돈</option>
+              <option>기념일</option><option>기타</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--ink2)">
+              <input type="checkbox" id="evY" style="width:17px;height:17px"> 매년 반복
+            </label>
+            <button class="btn acc sm" type="submit">추가</button>
+          </form>
+        </details>
+        <div id="evList" style="margin-top:12px"></div>
       </div>
 
       <div class="card">
@@ -243,8 +351,10 @@
           <button class="btn acc sm" type="submit">저장</button>
         </form>
         <p class="desc" style="margin:10px 0 0">
-          예산에 포함되는 지출 — 장보기(쿠팡·마켓컬리·이마트·네이버·마트·편의점) + 외식·배달·카페입니다.
-          고정비(대출·보험·통신·구독)와 병원비는 빠집니다.
+          예산에 자동으로 들어가는 지출 — <b>장보기</b>(쿠팡·컬리·이마트·마트·편의점),
+          <b>외식·배달·카페</b>, <b>생활용품</b>(무인양품·다이소·세제류)입니다.
+          고정비(대출·보험·통신·구독)·병원비·의류·가전은 빠집니다.
+          각 내역의 <b>생활비</b> 칩을 눌러 언제든 포함·제외를 바꿀 수 있습니다.
         </p>
       </div>
     </section>
@@ -638,7 +748,9 @@
 <script src="data/benchmark.js"></script>
 <script src="data/seed.js"></script>
 <script src="data/coupang.js"></script>
+<script src="data/lunar.js"></script>
 <script src="js/config.js"></script>
+<script src="js/lunar.js"></script>
 <script src="js/categorize.js"></script>
 <script src="js/parsers.js"></script>
 <script src="js/store.js"></script>

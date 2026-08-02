@@ -6,7 +6,7 @@
   'use strict';
   const CFG = root.APP_CONFIG || {};
   const ONLINE = !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY);
-  const LS_TX = 'bb_transactions', LS_WC = 'bb_work_claims', LS_USER = 'bb_user', LS_FX = 'bb_fixed_costs', LS_CP = 'bb_coupang', LS_ST = 'bb_settings';
+  const LS_TX = 'bb_transactions', LS_WC = 'bb_work_claims', LS_USER = 'bb_user', LS_FX = 'bb_fixed_costs', LS_CP = 'bb_coupang', LS_ST = 'bb_settings', LS_EV = 'bb_events';
 
   let sb = null;
   if (ONLINE && root.supabase) sb = root.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
@@ -219,7 +219,37 @@
     if (error) throw error;
   }
 
-  root.Store = { ONLINE, getSetting, setSetting, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx,
+  /* ---------------- 경조사 · 이벤트 ---------------- */
+  async function listEvents() {
+    if (!ONLINE) return lsGet(LS_EV, []).sort((a, b) => a.ev_date < b.ev_date ? -1 : 1);
+    const { data, error } = await sb.from('events').select('*').order('ev_date', { ascending: true });
+    if (error) throw error;
+    return data;
+  }
+  async function insertEvent(row) {
+    if (!ONLINE) {
+      const cur = lsGet(LS_EV, []);
+      cur.push(Object.assign({ id: Math.max(0, ...cur.map(r => r.id || 0)) + 1 }, row));
+      lsSet(LS_EV, cur); return;
+    }
+    const { error } = await sb.from('events').insert(row);
+    if (error) throw error;
+  }
+  async function updateEvent(id, patch) {
+    if (!ONLINE) {
+      const cur = lsGet(LS_EV, []); const i = cur.findIndex(r => r.id === id);
+      if (i >= 0) Object.assign(cur[i], patch); lsSet(LS_EV, cur); return;
+    }
+    const { error } = await sb.from('events').update(patch).eq('id', id);
+    if (error) throw error;
+  }
+  async function deleteEvent(id) {
+    if (!ONLINE) { lsSet(LS_EV, lsGet(LS_EV, []).filter(r => r.id !== id)); return; }
+    const { error } = await sb.from('events').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  root.Store = { ONLINE, getSetting, setSetting, listEvents, insertEvent, updateEvent, deleteEvent, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx,
                  listClaims, upsertClaim, deleteClaim,
                  listFixed, insertFixed, updateFixed, deleteFixed,
                  listCoupang, insertCoupang, updateCoupang };

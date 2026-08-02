@@ -233,3 +233,7 @@ select.catsel{border:1px solid var(--line);border-radius:8px;padding:2px 20px 2p
 .bchip{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:99px;
   padding:2px 9px;font-size:10.5px;font-weight:800;cursor:pointer;vertical-align:1px}
 .bchip.on{background:#e9fbf7;border-color:#a7f3e4;color:#0d9488}
+
+/* 현금흐름 행 */
+.bench .vl.minus{color:var(--expense)}
+#cfBar1,#cfBar2,#cfBar3{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1)}
