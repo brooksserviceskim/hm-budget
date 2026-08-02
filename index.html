@@ -520,6 +520,10 @@
           <div class="ic">🛒</div><div class="tx"><div class="t1">쿠팡 주문 가져오기</div>
           <div class="t2">폰에서 버튼 하나로 새 주문 추가</div></div><div class="chev">›</div>
         </div>
+        <div class="row" style="cursor:pointer" data-go="prefs">
+          <div class="ic">⚙️</div><div class="tx"><div class="t1">시작 화면 설정</div>
+          <div class="t2">앱을 열면 처음 보이는 화면</div></div><div class="chev">›</div>
+        </div>
         <div class="row" style="cursor:pointer" data-go="info">
           <div class="ic">ℹ️</div><div class="tx"><div class="t1">데이터 정보</div>
           <div class="t2">기간 · 건수 · 출처</div></div><div class="chev">›</div>
@@ -710,6 +714,19 @@
           <b>안드로이드 크롬</b> — 북마크 추가 후 편집해서 URL을 코드로 교체<br>
           여러 해치 주문을 한꺼번에 모으려면 PC용 <b>크롬 확장</b>을 쓰세요.
         </p>
+      </div>
+    </section>
+
+    <!-- ---------- 환경 설정 ---------- -->
+    <section id="v-prefs" class="view hide">
+      <div class="card">
+        <h2>시작 화면</h2>
+        <p class="desc">앱을 열거나 로그인했을 때 처음 보일 화면을 고르세요. 사람마다 따로 저장됩니다.</p>
+        <div class="seg" id="startSeg" style="width:100%">
+          <button data-v="budget">생활비</button>
+          <button data-v="home">대시보드</button>
+          <button data-v="ledger">가계부</button>
+        </div>
       </div>
     </section>
 
