@@ -359,6 +359,38 @@
       </div>
     </section>
 
+    <!-- ---------- 용돈 사용 내역 ---------- -->
+    <section id="v-allowance" class="view hide">
+      <div class="controls">
+        <div class="seg" id="alRange">
+          <button data-r="cur" class="on">이번달</button>
+          <button data-r="prev">지난달</button>
+          <button data-r="3">3개월</button>
+          <button data-r="0">전체</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cap" id="alPeriod">—</div>
+        <div class="big num" id="alTotal">—</div>
+        <div class="cap" id="alSub" style="margin-top:6px"></div>
+      </div>
+
+      <div class="hscroll" id="alStats"></div>
+
+      <div class="card">
+        <h2>사용 내역</h2>
+        <p class="desc">
+          삼성카드 결제는 기본적으로 <b>용돈</b>으로 잡힙니다.
+          장보기·외식처럼 생활비로 쓴 건은 <b>생활비로</b> 버튼을 누르면 예산에서 차감됩니다.
+        </p>
+        <div id="alList"></div>
+        <div style="text-align:center;padding:10px 0 0">
+          <button class="btn ghost sm hide" id="alMore">더 보기</button>
+        </div>
+      </div>
+    </section>
+
     <!-- ---------- 쿠팡 ---------- -->
     <section id="v-coupang" class="view hide">
       <div class="controls">
@@ -511,6 +543,10 @@
         <div class="row" style="cursor:pointer" data-go="work">
           <div class="ic">🧳</div><div class="tx"><div class="t1">업무비용 환급</div>
           <div class="t2">루트82 개인카드 사용분</div></div><div class="chev">›</div>
+        </div>
+        <div class="row" style="cursor:pointer" data-go="allowance">
+          <div class="ic">💳</div><div class="tx"><div class="t1">김현우 용돈 사용 내역</div>
+          <div class="t2">삼성카드 결제 · 생활비로 이관 가능</div></div><div class="chev">›</div>
         </div>
         <div class="row" style="cursor:pointer" data-go="coupang">
           <div class="ic">📦</div><div class="tx"><div class="t1">쿠팡 상품 분석</div>
