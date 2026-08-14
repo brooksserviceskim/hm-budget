@@ -169,23 +169,71 @@
     return out;
   }
 
-  /** 기업은행 입출금 내역 파싱 */
+  /** 기업은행 입출금 내역 파싱
+   *  - "거래용" : 헤더 없는 BIFF 파일 (열 위치 고정)
+   *  - "출력용" : 헤더가 있는 HTML 표 (열 이름으로 매핑, 날짜가 엑셀 일련번호)
+   */
+  const pad2s = n => String(n).padStart(2, '0');
+  function serialToYmd(n) {
+    const d = new Date(Math.round((n - 25569) * 86400000));
+    return `${d.getUTCFullYear()}-${pad2s(d.getUTCMonth() + 1)}-${pad2s(d.getUTCDate())}`;
+  }
+  function anyDate(v) {
+    if (typeof v === 'number' && v > 20000 && v < 80000) return serialToYmd(v);
+    const m = String(v ?? '').match(/(\d{4})[-.\/](\d{2})[-.\/](\d{2})/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  }
+
   function parseIbk(wb) {
     const out = [];
     const fp = fpFactory();
-    const sh = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sh, { header: 1, defval: '' });
 
-    for (const r of rows) {
-      const raw = String(r[0] ?? '');
-      const d = raw.match(/(\d{4})[-.\/](\d{2})[-.\/](\d{2})/);
-      if (!d) continue;
-      const rec = {
-        d: `${d[1]}-${d[2]}-${d[3]}`, out: num(r[1]), in: num(r[2]),
-        desc: S(r[4]), acct: S(r[6]), cp: S(r[11])
-      };
-      const row = bankRow(rec, fp);
-      if (row) out.push(row);
+    for (const name of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+      if (!rows.length) continue;
+
+      // 헤더 행 찾기 (출력용)
+      let hi = -1;
+      for (let i = 0; i < Math.min(8, rows.length); i++) {
+        const line = rows[i].map(x => S(x)).join('|');
+        if (/거래일시|거래일자/.test(line) && /출금/.test(line) && /입금/.test(line)) { hi = i; break; }
+      }
+
+      if (hi >= 0) {
+        const head = rows[hi].map(x => S(x));
+        const col = (...names) => {
+          for (const n of names) {
+            const i = head.findIndex(h => h.replace(/\s/g, '') === n);
+            if (i >= 0) return i;
+          }
+          for (const n of names) {
+            const i = head.findIndex(h => h.replace(/\s/g, '').includes(n));
+            if (i >= 0) return i;
+          }
+          return -1;
+        };
+        const cD = col('거래일시', '거래일자'), cOut = col('출금'), cIn = col('입금');
+        const cDesc = col('거래내용', '적요'), cAcct = col('상대계좌번호', '계좌번호'),
+              cCp = col('상대계좌예금주명', '상대예금주', '예금주');
+        for (const r of rows.slice(hi + 1)) {
+          const d = anyDate(r[cD]);
+          if (!d) continue;
+          const rec = { d, out: num(r[cOut]), in: num(r[cIn]),
+                        desc: S(r[cDesc]), acct: S(r[cAcct]), cp: S(r[cCp]) };
+          const row = bankRow(rec, fp);
+          if (row) out.push(row);
+        }
+      } else {
+        // 헤더 없는 구형 포맷
+        for (const r of rows) {
+          const d = anyDate(r[0]);
+          if (!d) continue;
+          const rec = { d, out: num(r[1]), in: num(r[2]),
+                        desc: S(r[4]), acct: S(r[6]), cp: S(r[11]) };
+          const row = bankRow(rec, fp);
+          if (row) out.push(row);
+        }
+      }
     }
     return out;
   }
@@ -348,6 +396,13 @@
     } catch (e) { /* 무시 */ }
     if (/일시불|할부/.test(names)) return { type: '삼성카드 명세서', rows: parseSamsung(wb, fileName) };
     if (/거래내역|입출식/.test(names)) return { type: '기업은행 입출금 내역', rows: parseIbk(wb) };
+    // 시트 이름이 Sheet1/Sheet2 인 '출력용' HTML 파일 → 헤더로 판별
+    for (const sn of wb.SheetNames) {
+      const head = (XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '' })[0] || [])
+        .map(x => S(x)).join('|');
+      if (/거래일시|거래일자/.test(head) && /출금/.test(head))
+        return { type: '기업은행 입출금 내역', rows: parseIbk(wb) };
+    }
     // 시트 이름을 못 믿을 때는 첫 셀 모양으로 추정
     return { type: '기업은행 입출금 내역(추정)', rows: parseIbk(wb) };
   }
