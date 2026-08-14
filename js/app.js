@@ -544,7 +544,7 @@
     $('#ledgerList').innerHTML = html || '<p class="desc" style="margin:0;padding:12px 0">내역이 없습니다.</p>';
   }
   const srcLabel = s => ({ samsung_card: '삼성카드', bank: '기업은행', sheet: '가계부 시트',
-                           manual: '직접 입력', sms: '문자 자동' }[s] || s);
+                           manual: '직접 입력', sms: '문자 자동', hyundai_card: '현대카드' }[s] || s);
 
   /** 생활비 포함/제외 칩 */
   function budgetChip(t) {
@@ -1612,25 +1612,47 @@
   $('#fileInput').addEventListener('change', e => handleFiles(e.target.files));
 
   async function handleFiles(files) {
-    const log = $('#uploadLog'); log.classList.remove('hide'); log.textContent = '';
-    const say = m => { log.innerHTML += m + '\n'; log.scrollTop = log.scrollHeight; };
+    const log = $('#uploadLog');
+    log.classList.remove('hide');
+    log.textContent = '';
+    const lines = [];
+    const draw = tail => { log.textContent = lines.concat(tail ? [tail] : []).join('\n'); log.scrollTop = log.scrollHeight; };
+    let failCount = 0;
+
     for (const f of files) {
+      draw(`${f.name} 읽는 중...`);
       try {
-        say(`${f.name} 읽는 중...`);
-        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
-        const parsed = P.parseWorkbook(wb, f.name);
-        const { type, rows } = parsed;
-        if (parsed.kind === 'coupang') {
-          const res = await S.insertCoupang(rows);
-          say(`  → ${type} · ${rows.length}건 인식 / 신규 ${res.inserted} 저장 / 중복 ${res.skipped} 건너뜀`);
+        const buf = await f.arrayBuffer();
+        let res, type, n;
+
+        if (/\.pdf$/i.test(f.name)) {
+          const rows = await P.parsePdf(buf, f.name);          // 현대카드 PDF 명세서
+          type = '현대카드 명세서(PDF)'; n = rows.length;
+          if (!n) throw new Error('명세서에서 거래를 찾지 못했습니다');
+          res = await S.insertTx(rows.map(r => Object.assign(r, { owner: USER.name })));
         } else {
-          const clean = rows.map(r => { const { _workHint, ...rest } = r; return Object.assign(rest, { owner: USER.name }); });
-          const res = await S.insertTx(clean);
-          say(`  → ${type} · ${rows.length}건 인식 / 신규 ${res.inserted} 저장 / 중복 ${res.skipped} 건너뜀`);
+          const wb = XLSX.read(buf, { type: 'array' });
+          const parsed = P.parseWorkbook(wb, f.name);
+          type = parsed.type; n = parsed.rows.length;
+          if (parsed.kind === 'coupang') {
+            res = await S.insertCoupang(parsed.rows);
+          } else {
+            const clean = parsed.rows.map(r => { const { _workHint, ...rest } = r; return Object.assign(rest, { owner: USER.name }); });
+            res = await S.insertTx(clean);
+          }
         }
-      } catch (err) { say(`  ✕ 실패: ${err.message}`); }
+        lines.push(`✅ ${f.name} · ${type} — ${n}건 인식 / 신규 ${res.inserted}건 저장` +
+                   (res.skipped ? ` / 중복 ${res.skipped}건 건너뜀` : ''));
+      } catch (err) {
+        failCount++;
+        lines.push(`✕ ${f.name} — 실패: ${err.message}`);
+      }
+      draw();
     }
-    await reload(); toast('업로드 완료');
+
+    await reload();
+    toast(failCount ? `업로드 완료 (실패 ${failCount}건)` : '업로드 완료');
+    if (!failCount) setTimeout(() => { log.classList.add('hide'); log.textContent = ''; }, 6000);
   }
 
   $('#seedBtn').addEventListener('click', () => loadSeed($('#seedLog')));

@@ -231,6 +231,111 @@
     return out;
   }
 
+
+  /* ============================================================
+     현대카드 이용대금 명세서 (PDF)
+     - 이메일로 오는 HTML 명세서를 PDF로 인쇄한 파일
+     - 줄 단위로 재구성한 뒤 "MM.DD" 로 시작하는 블록을 거래 1건으로 본다
+     ============================================================ */
+  const HY_SKIP = /일부결제금액|소\s*계|총\s*합계|이용일|가맹점|결제 상세|회원 정보|이용한도|본 메일|문의사항/;
+  // 줄바꿈으로 쪼개진 카드 표기 토큰들 ("현대카" + "드" 등)
+  const HY_STOP = new Set(['본인','가족','현대카드','현대카','현대','카드','드','하이패스',
+                           '코현대카드','코현대카','코스트코현대카드','코스트코현대카','코스트코',
+                           '코','체크','M포인트','포인트']);
+  const isCardTok = t => HY_STOP.has(t) || /^Ed\d*$/i.test(t);
+
+  /** 줄 배열 → 거래 배열 (테스트 가능한 순수 함수) */
+  function parseHyundaiLines(lines, year, month) {
+    const fp = fpFactory();
+    const out = [];
+    let buf = null;
+
+    const flush = () => {
+      if (!buf) return;
+      const txt = clean2(buf);
+      buf = null;
+      const md = txt.match(/^(\d{2})[.\-\/](\d{2})\s+(.*)$/);
+      if (!md) return;
+      const mm = +md[1], dd = +md[2];
+      // "0002건" 같은 건수 표기는 금액 판정 전에 제거
+      let rest = md[3].replace(/\d{1,5}\s*건/g, ' ');
+
+      // 금액 : 첫 번째 유효 금액 (0으로 시작하는 "0004" 같은 건수 코드는 제외)
+      const am = rest.match(/([1-9][0-9,]{2,})/);
+      if (!am) return;
+      const amount = Number(am[1].replace(/,/g, ''));
+      if (!amount) return;
+
+      // 가맹점 : 금액 앞부분에서 카드 표기 토큰을 걷어낸 나머지
+      let head = rest.slice(0, am.index)
+        .split(/\s+/).filter(t => t && !isCardTok(t) && !/^\d+$/.test(t)).join(' ');
+      head = clean2(head);
+      if (!head || HY_SKIP.test(head)) return;
+
+      // 연도 : 명세서 기준월보다 뒤면 전년도
+      let y = year;
+      if (month && mm > month) y = year - 1;
+      const d = `${y}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+
+      const r = rowFrom({
+        source: 'hyundai_card', tx_date: d, merchant: head,
+        amount, raw_amount: amount,
+        memo: '현대카드 명세서',
+        fingerprint: fp(['hd', d, head, amount])
+      });
+      delete r._workHint;
+      out.push(r);
+    };
+
+    for (const raw of lines) {
+      const ln = clean2(raw);
+      if (!ln) continue;
+      if (/^\d{2}[.\-\/]\d{2}\s/.test(ln)) { flush(); buf = ln; continue; }
+      if (buf) {
+        if (HY_SKIP.test(ln)) { flush(); continue; }
+        buf += ' ' + ln;
+      }
+    }
+    flush();
+    return out;
+  }
+  const clean2 = t => String(t || '').replace(/\s+/g, ' ').trim();
+
+  /** PDF 파일 → 거래 배열 (pdf.js 로 텍스트를 좌표 기준 줄로 재구성) */
+  async function parsePdf(buf) {
+    const lib = window.pdfjsLib;
+    if (!lib) throw new Error('PDF 라이브러리를 불러오지 못했습니다');
+    lib.GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+    const doc = await lib.getDocument({ data: buf }).promise;
+    const lines = [];
+    let year = new Date().getFullYear(), month = 0;
+
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      // y 좌표로 줄 묶기 → x 순서로 정렬
+      const rows = new Map();
+      for (const it of tc.items) {
+        if (!it.str || !it.str.trim()) continue;
+        const y = Math.round(it.transform[5]);
+        const key = Math.round(y / 3);           // 3pt 오차 허용
+        if (!rows.has(key)) rows.set(key, []);
+        rows.get(key).push({ x: it.transform[4], s: it.str });
+      }
+      [...rows.entries()].sort((a, b) => b[0] - a[0]).forEach(([, arr]) => {
+        lines.push(arr.sort((a, b) => a.x - b.x).map(o => o.s).join(' '));
+      });
+    }
+
+    const head = lines.join(' ');
+    const ym = head.match(/(20\d{2})\s*년\s*(\d{1,2})\s*월/);
+    if (ym) { year = +ym[1]; month = +ym[2]; }
+
+    return parseHyundaiLines(lines, year, month);
+  }
+
   /** 확장자/시트 이름으로 자동 판별 */
   function parseWorkbook(wb, fileName) {
     const names = wb.SheetNames.join(',');
@@ -247,5 +352,5 @@
     return { type: '기업은행 입출금 내역(추정)', rows: parseIbk(wb) };
   }
 
-  root.Parsers = { parseWorkbook, parseSamsung, parseIbk, parseCoupang, rowFrom, fpFactory, classifyBank, bankRow, BANK_LABEL };
+  root.Parsers = { parseWorkbook, parseSamsung, parseIbk, parseCoupang, parsePdf, parseHyundaiLines, rowFrom, fpFactory, classifyBank, bankRow, BANK_LABEL };
 })(window);

@@ -573,8 +573,8 @@
         <h2>명세서 업로드</h2>
         <p class="desc">삼성카드 월 명세서(.xlsx) 또는 기업은행 입출금 내역(.xls)을 그대로 올리면 자동 분류됩니다.
           같은 파일을 여러 번 올려도 중복 저장되지 않습니다.</p>
-        <div class="drop" id="drop">파일을 여기에 놓거나 눌러서 선택<br><small>여러 개 동시에 가능</small></div>
-        <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv" class="hide">
+        <div class="drop" id="drop">파일을 여기에 놓거나 눌러서 선택<br><small>xlsx · xls · csv · pdf · 여러 개 동시에 가능</small></div>
+        <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv,.pdf" class="hide">
         <div class="log hide" id="uploadLog"></div>
       </div>
       <div class="card">
@@ -796,6 +796,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="data/benchmark.js"></script>
