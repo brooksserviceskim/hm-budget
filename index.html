@@ -674,7 +674,23 @@
           <b id="expWho">—</b> 님의 지출로 저장되고, 본인이 언제든 수정·삭제할 수 있습니다.</p>
         <form id="expenseForm">
           <div class="field"><label>날짜</label><input id="expDate" class="pill" type="date" style="width:100%" required></div>
-          <div class="field"><label>금액 (원)</label><input id="expAmt" class="pill" type="number" inputmode="numeric" style="width:100%" placeholder="15000" required></div>
+          <div class="field"><label>금액</label>
+            <div style="display:flex;gap:8px">
+              <input id="expAmt" class="pill" type="number" inputmode="decimal" step="0.01" style="flex:1;min-width:0" placeholder="15000" required>
+              <select id="expCur" class="pill" style="width:104px;flex:none">
+                <option value="KRW">원 (KRW)</option>
+                <option value="MYR">링깃 MYR</option>
+                <option value="USD">달러 USD</option>
+                <option value="JPY">엔 JPY</option>
+                <option value="EUR">유로 EUR</option>
+                <option value="THB">바트 THB</option>
+                <option value="SGD">SGD</option>
+                <option value="VND">VND</option>
+                <option value="CNY">위안 CNY</option>
+              </select>
+            </div>
+            <div class="desc" id="expFxHint" style="margin:6px 0 0"></div>
+          </div>
           <div class="field"><label>내용</label><input id="expName" class="pill" type="text" style="width:100%" placeholder="예: 미용실" required></div>
           <div class="field"><label>분류</label><select id="expCat" class="pill" style="width:100%"></select></div>
           <div class="field"><label>세부 (선택)</label><input id="expSub" class="pill" type="text" style="width:100%" placeholder="예: 미용"></div>

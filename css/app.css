@@ -237,3 +237,5 @@ select.catsel{border:1px solid var(--line);border-radius:8px;padding:2px 20px 2p
 /* 현금흐름 행 */
 .bench .vl.minus{color:var(--expense)}
 #cfBar1,#cfBar2,#cfBar3{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1)}
+
+.tag.fx{background:#eef2ff;color:#4f46e5}

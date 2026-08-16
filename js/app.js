@@ -26,6 +26,7 @@
     const m = t.memo || '';
     if (m.includes('[생활비제외]')) return false;
     if (m.includes('[생활비]')) return true;
+    if (fxOf(t)) return false;                   // 해외 결제(여행)는 생활비 예산과 분리
     if (isSamsung(t)) return false;              // 삼성카드는 기본 '용돈'
     return BUDGET_SUBS.has(t.subcategory) || BUDGET_CATS.has(t.category) || t.source === 'sms';
   }
@@ -90,7 +91,7 @@
       const inBudget = isBudgetTx(t);
       html += `<div class="row" data-id="${t.id}">
         <div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
-        <div class="tx"><div class="t1">${esc(t.merchant)}${inBudget ? ' <span class="tag g">생활비</span>' : ''}</div>
+        <div class="tx"><div class="t1">${esc(t.merchant)}${fxBadge(t)}${inBudget ? ' <span class="tag g">생활비</span>' : ''}</div>
           <div class="t2">${catSelect(t)} · ${srcLabel(t.source)}</div></div>
         <div class="amt num">${fmt(t.amount)}</div>
         ${canEdit(t) ? `<button class="btn ${inBudget ? 'ghost' : 'acc'} sm al-move" style="margin-left:8px;white-space:nowrap">${inBudget ? '용돈으로' : '생활비로'}</button>` : ''}</div>`;
@@ -136,6 +137,110 @@
                        more: '더보기', upload: '명세서 업로드', income: '수입 입력',
                        work: '업무비용 환급', info: '데이터 정보' };
   const MONTH_VIEWS = new Set(['home', 'ledger']);
+
+  /* ============================================================
+     외화 결제 : 결제일 환율로 원화 환산
+     서버가 amount=0, memo 에 "FX:MYR:150.00" 형태로 넣어둔 건을 채운다
+     ============================================================ */
+  const FX_FEE = 1.002;                       // 해외사용 수수료 0.2%
+  function fxOf(t) {
+    const m = /FX:([A-Z]{3}):([0-9.]+)/.exec(t.memo || '');
+    return m ? { cur: m[1], amt: parseFloat(m[2]) } : null;
+  }
+  /* memo 끝의 "@1234.56" 은 확정 환율, "@1234.56?" 는 잠정(그날 고시 전) */
+  function fxProvisional(t) { return /@[0-9.]+\?/.test(t.memo || ''); }
+
+  /**
+   * 결제일 환율. 주말·공휴일이나 아직 고시 전이면 직전 영업일 값을 쓰되
+   * provisional 로 표시해 나중에 다시 채운다.
+   */
+  async function fxRate(cur, date) {
+    const key = `fx_${cur}_${date}`;
+    const hit = localStorage.getItem(key);
+    if (hit) return { rate: +hit, provisional: false };
+    const get = async u => { try { const r = await fetch(u); return await r.json(); } catch (e) { return null; } };
+    try {
+      let j = await get(`https://api.frankfurter.app/${date}?from=${cur}&to=KRW`);
+      if (!j?.rates?.KRW) {                       // 아직 고시 전이면 최신 환율로 임시 계산
+        j = await get(`https://api.frankfurter.app/latest?from=${cur}&to=KRW`);
+      }
+      const rate = j?.rates?.KRW;
+      if (!rate) return null;
+      const gap = (new Date(date) - new Date(j.date)) / 86400000;
+      const old = (Date.now() - new Date(date)) / 86400000;
+      // 요청일 환율이 그대로 나왔거나, 5일 넘게 지난 건이면 더 좋아질 게 없으니 확정
+      const provisional = !(gap <= 0 || old > 5);
+      if (!provisional) localStorage.setItem(key, String(rate));
+      return { rate, provisional };
+    } catch (e) { return null; }
+  }
+
+  /** 외화 → 원화 (실패하면 null) */
+  async function toKrw(cur, amt, date) {
+    if (!cur || cur === 'KRW') return { krw: Math.round(amt), rate: null, provisional: false };
+    const r = await fxRate(cur, date);
+    if (!r) return null;
+    return { krw: Math.round(amt * r.rate * FX_FEE), rate: r.rate, provisional: r.provisional };
+  }
+
+  /** 원화가 비었거나 잠정 환율로 채워진 외화 결제를 다시 계산한다 */
+  async function resolveFx() {
+    if (!canWrite()) return;
+    const todo = TX.filter(t => t.kind === 'expense' && fxOf(t) &&
+                                (+t.amount === 0 || fxProvisional(t)));
+    if (!todo.length) return;
+    let done = 0;
+    for (const t of todo) {
+      const f = fxOf(t);
+      const conv = await toKrw(f.cur, f.amt, t.tx_date);
+      if (!conv) continue;
+      const tag = `@${conv.rate.toFixed(2)}${conv.provisional ? '?' : ''}`;
+      const memo = (t.memo || '').replace(/\s*@[0-9.]+\??/, '') + ' ' + tag;
+      if (+t.amount === conv.krw && (t.memo || '').includes(tag)) continue;
+      await S.updateTx(t.id, { amount: conv.krw, raw_amount: conv.krw, memo });
+      t.amount = conv.krw; t.raw_amount = conv.krw; t.memo = memo;
+      done++;
+    }
+    if (done) toast(`외화 결제 ${done}건을 원화로 환산했습니다`);
+  }
+
+  /** 목록에 붙일 외화 표기 */
+  function fxBadge(t) {
+    const f = fxOf(t);
+    if (!f) return '';
+    const nf = new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2 });
+    const wait = +t.amount === 0 ? ' <span class="tag w">환율 대기</span>' : '';
+    return ` <span class="tag fx">${f.cur} ${nf.format(f.amt)}</span>${wait}`;
+  }
+
+  /* ============================================================
+     문자 자동 등록 ↔ 카드 명세서 중복 제거
+     같은 결제가 문자로 한 번, 나중에 명세서로 또 한 번 들어오는 것을 막는다.
+     명세서(청구 금액이 정확)를 남기고 문자 건을 지운다.
+     ============================================================ */
+  const CARD_SRC = new Set(['samsung_card', 'hyundai_card']);
+  const dayGap = (a, b) => Math.abs((new Date(a) - new Date(b)) / 86400000);
+  const merKey = m => (m || '').toUpperCase().replace(/[^A-Z0-9가-힣]/g, '').slice(0, 6);
+
+  async function dedupeSmsVsCard() {
+    if (!canWrite()) return 0;
+    const cards = TX.filter(t => t.kind === 'expense' && CARD_SRC.has(t.source));
+    const sms   = TX.filter(t => t.kind === 'expense' && t.source === 'sms');
+    if (!cards.length || !sms.length) return 0;
+    const used = new Set();
+    const kill = [];
+    for (const s of sms) {
+      const fx = fxOf(s);
+      const hit = cards.find(c => !used.has(c.id) && dayGap(c.tx_date, s.tx_date) <= 3 && (
+        fx ? merKey(c.merchant) === merKey(s.merchant)          // 해외건은 금액이 달라 가맹점으로 대조
+           : (+c.amount === +s.amount || merKey(c.merchant) === merKey(s.merchant))
+      ));
+      if (hit) { used.add(hit.id); kill.push(s); }
+    }
+    for (const s of kill) { await S.deleteTx(s.id); }
+    if (kill.length) TX = TX.filter(t => !kill.includes(t));
+    return kill.length;
+  }
 
   /* ---------- 아이폰 설치 안내 배너 ---------- */
   function iosInstallHint() {
@@ -233,6 +338,7 @@
     }
     await consumePending();
     await migrate();
+    await resolveFx();
     months = A.effectiveMonths(TX);
     if (!curMonth || !months.includes(curMonth)) curMonth = months[months.length - 1] || null;
     renderAll();
@@ -537,7 +643,7 @@
       const income = t.kind === 'income';
       html += `<div class="row ${t.is_work ? 'work' : ''}" data-id="${t.id}">
         <div class="ic">${income ? '💰' : C.iconOf(t.category, t.subcategory)}</div>
-        <div class="tx"><div class="t1">${esc(t.merchant)}${t.installment ? ` <span class="tag">할부 ${t.installment}</span>` : ''}${t.is_work ? ' <span class="tag w">업무</span>' : ''}</div>
+        <div class="tx"><div class="t1">${esc(t.merchant)}${fxBadge(t)}${t.installment ? ` <span class="tag">할부 ${t.installment}</span>` : ''}${t.is_work ? ' <span class="tag w">업무</span>' : ''}</div>
           <div class="t2">${income ? (t.income_src || '수입') : catSelect(t) + ' ' + budgetChip(t)} · ${srcLabel(t.source)}</div></div>
         <div class="amt num ${income ? 'in' : ''}">${income ? '+' : '-'}${fmt(t.amount)}</div></div>`;
     }
@@ -811,7 +917,7 @@
         html += `<div class="day-sep"><span>${t.tx_date}</span><span class="ln"></span><span class="num">${fmt(day)}</span></div>`;
       }
       html += `<div class="row" data-id="${t.id}"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
-        <div class="tx"><div class="t1">${esc(t.merchant)}${t.source === 'sms' ? ' <span class="tag g">문자</span>' : ''}</div>
+        <div class="tx"><div class="t1">${esc(t.merchant)}${fxBadge(t)}${t.source === 'sms' ? ' <span class="tag g">문자</span>' : ''}</div>
           <div class="t2">${catSelect(t)} ${budgetChip(t)} · ${ownerOf(t)}</div></div>
         <div class="amt num">${fmt(t.amount)}</div>
         ${canEdit(t) ? '<button class="btn ghost sm bg-del" style="margin-left:8px">삭제</button>' : ''}</div>`;
@@ -1651,6 +1757,8 @@
     }
 
     await reload();
+    const dup = await dedupeSmsVsCard();
+    if (dup) { lines.push(`↻ 문자로 먼저 들어와 있던 ${dup}건은 명세서 기준으로 정리했습니다`); draw(); applyPerson(); renderAll(); }
     toast(failCount ? `업로드 완료 (실패 ${failCount}건)` : '업로드 완료');
     if (!failCount) setTimeout(() => { log.classList.add('hide'); log.textContent = ''; }, 6000);
   }
@@ -1764,18 +1872,41 @@
     e.preventDefault(); $('#expErr').textContent = '';
     try {
       const d = $('#expDate').value, amt = +$('#expAmt').value, nm = $('#expName').value.trim();
+      const cur = $('#expCur')?.value || 'KRW';
       if (!d || !amt || !nm) throw new Error('날짜 · 금액 · 내용을 입력하세요.');
+      const conv = await toKrw(cur, amt, d);
+      if (!conv) throw new Error(`${cur} 환율을 가져오지 못했습니다. 잠시 뒤 다시 시도하거나 원화로 입력해 주세요.`);
+      let memo = $('#expMethod').value.trim();
+      if (cur !== 'KRW') {
+        memo = (memo ? memo + ' ' : '') + `FX:${cur}:${amt.toFixed(2)} @${conv.rate.toFixed(2)}${conv.provisional ? '?' : ''}`;
+      }
       await S.insertTx([{
-        kind: 'expense', source: 'manual', tx_date: d, merchant: nm, amount: amt, raw_amount: amt,
+        kind: 'expense', source: 'manual', tx_date: d, merchant: nm,
+        amount: conv.krw, raw_amount: conv.krw,
         benefit: 0, category: $('#expCat').value, subcategory: $('#expSub').value.trim(),
         income_src: null, is_work: false, installment: '', bill_month: null,
-        memo: $('#expMethod').value.trim(), owner: USER.name,
-        fingerprint: `manual|out|${d}|${nm}|${amt}|${Date.now()}`
+        memo, owner: USER.name,
+        fingerprint: `manual|out|${d}|${nm}|${conv.krw}|${Date.now()}`
       }]);
       $('#expAmt').value = ''; $('#expName').value = ''; $('#expSub').value = '';
+      if ($('#expFxHint')) $('#expFxHint').textContent = '';
       await reload(); go('expense'); toast('지출 저장 완료');
     } catch (err) { $('#expErr').textContent = err.message; }
   });
+  async function expFxPreview() {
+    const hint = $('#expFxHint'); if (!hint) return;
+    const cur = $('#expCur').value, amt = +$('#expAmt').value, d = $('#expDate').value;
+    if (cur === 'KRW' || !amt || !d) { hint.textContent = ''; return; }
+    hint.textContent = '환율 확인 중...';
+    const conv = await toKrw(cur, amt, d);
+    hint.textContent = conv
+      ? `≈ ${fmt(conv.krw)}  (1 ${cur} = ${conv.rate.toFixed(2)}원, 해외수수료 0.2% 포함)`
+      : '환율을 가져오지 못했습니다.';
+  }
+  ['#expCur', '#expAmt', '#expDate'].forEach(sel => {
+    $(sel)?.addEventListener('change', expFxPreview);
+  });
+
   $('#expenseList')?.addEventListener('click', async e => {
     if (!e.target.classList.contains('exp-del')) return;
     const id = +e.target.closest('.row').dataset.id;
