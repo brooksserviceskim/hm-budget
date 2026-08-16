@@ -134,6 +134,7 @@
       <div id="ledgerSearchWrap" class="hide" style="margin-bottom:10px">
         <input class="pill" id="fSearch" type="search" placeholder="가맹점 검색" style="width:100%">
       </div>
+      <div class="fbar-slot" id="fbLedger"></div>
       <div class="chips" id="ledgerCats" style="margin-bottom:12px"></div>
       <div class="card tight" id="ledgerCard">
         <div id="ledgerList"></div>
@@ -335,8 +336,9 @@
       </div>
 
       <div class="card">
-        <h2>이번 달 생활비 내역</h2>
+        <h2 id="bgListTitle">이번 달 생활비 내역</h2>
         <p class="desc">분류를 바꾸려면 각 항목의 드롭다운을 선택하세요. 몇 번이든 바꿀 수 있습니다.</p>
+        <div class="fbar-slot" id="fbBudget"></div>
         <div id="bgList"></div>
         <div style="text-align:center;padding:10px 0 0">
           <button class="btn ghost sm hide" id="bgMore">더 보기</button>
@@ -369,6 +371,7 @@
           <button data-r="0">전체</button>
         </div>
       </div>
+      <div class="fbar-slot" id="fbAllow"></div>
 
       <div class="card">
         <div class="cap" id="alPeriod">—</div>

@@ -34,15 +34,22 @@
   /* ---------- 용돈 사용 내역 (삼성카드) ---------- */
   let alRange = 'cur', alLimit = 60;
 
+  function allowancePool() {
+    return TX.filter(t => t.kind === 'expense' && isSamsung(t) && A.isHouseholdExpense(t));
+  }
   function allowanceRows() {
-    let rows = TX.filter(t => t.kind === 'expense' && isSamsung(t) && A.isHouseholdExpense(t));
+    const f = FILT.allow;
+    let rows = allowancePool();
+    if (f.from || f.to) {                                 // 기간을 직접 고르면 위 버튼 대신 그 기간
+      return rows.filter(t => passFilt(t, f)).sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+    }
     if (alRange === 'cur') rows = rows.filter(t => t.tx_date.slice(0, 7) === todayYM());
     else if (alRange === 'prev') rows = rows.filter(t => t.tx_date.slice(0, 7) === ymShift(todayYM(), -1));
     else if (alRange) {
       const keys = new Set([...new Set(TX.map(t => t.tx_date.slice(0, 7)))].sort().slice(-alRange));
       rows = rows.filter(t => keys.has(t.tx_date.slice(0, 7)));
     }
-    return rows.sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+    return rows.filter(t => passFilt(t, f)).sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
   }
 
   $('#alRange')?.addEventListener('click', e => {
@@ -54,13 +61,16 @@
   $('#alMore')?.addEventListener('click', () => { alLimit += 60; renderAllowance(); });
 
   function renderAllowance() {
+    drawFilter('#fbAllow', 'allow', allowancePool(), () => { alLimit = 60; renderAllowance(); });
     const rows = allowanceRows();
     const total = rows.reduce((a, t) => a + t.amount, 0);
     const moved = rows.filter(isBudgetTx);
     const movedSum = moved.reduce((a, t) => a + t.amount, 0);
     const pure = total - movedSum;
 
-    const lbl = alRange === 'cur' ? `${new Date().getMonth() + 1}월`
+    const af = FILT.allow;
+    const lbl = (af.from || af.to) ? `${af.from || '처음'} ~ ${af.to || '오늘'}`
+      : alRange === 'cur' ? `${new Date().getMonth() + 1}월`
       : alRange === 'prev' ? `${+ymShift(todayYM(), -1).slice(5)}월`
       : alRange ? `최근 ${alRange}개월` : '전체';
     $('#alPeriod').textContent = `${lbl} 삼성카드 사용`;
@@ -240,6 +250,112 @@
     for (const s of kill) { await S.deleteTx(s.id); }
     if (kill.length) TX = TX.filter(t => !kill.includes(t));
     return kill.length;
+  }
+
+  /* ============================================================
+     공용 필터 : 기간(캘린더) · 카테고리 · 결제 통화(국가)
+     ============================================================ */
+  const CUR_INFO = {
+    KRW: ['대한민국', '🇰🇷'], MYR: ['말레이시아', '🇲🇾'], USD: ['미국', '🇺🇸'],
+    JPY: ['일본', '🇯🇵'], EUR: ['유럽', '🇪🇺'], CNY: ['중국', '🇨🇳'],
+    THB: ['태국', '🇹🇭'], VND: ['베트남', '🇻🇳'], SGD: ['싱가포르', '🇸🇬'],
+    HKD: ['홍콩', '🇭🇰'], TWD: ['대만', '🇹🇼'], GBP: ['영국', '🇬🇧'],
+    AUD: ['호주', '🇦🇺'], NZD: ['뉴질랜드', '🇳🇿'], CAD: ['캐나다', '🇨🇦'],
+    CHF: ['스위스', '🇨🇭'], PHP: ['필리핀', '🇵🇭'], IDR: ['인도네시아', '🇮🇩'],
+    AED: ['UAE', '🇦🇪'], MOP: ['마카오', '🇲🇴'], MXN: ['멕시코', '🇲🇽'], TRY: ['튀르키예', '🇹🇷']
+  };
+  const curName = c => { const i = CUR_INFO[c]; return i ? `${i[1]} ${i[0]} (${c})` : c; };
+
+  const FILT = {
+    ledger: { from: '', to: '', cat: '', cur: '' },
+    budget: { from: '', to: '', cat: '', cur: '' },
+    allow:  { from: '', to: '', cat: '', cur: '' }
+  };
+  const filtOn = f => !!(f.from || f.to || f.cat || f.cur);
+  const filtCount = f => ((f.from || f.to) ? 1 : 0) + (f.cat ? 1 : 0) + (f.cur ? 1 : 0);
+
+  function passFilt(t, f) {
+    if (f.from && t.tx_date < f.from) return false;
+    if (f.to   && t.tx_date > f.to)   return false;
+    if (f.cat  && t.category !== f.cat) return false;
+    if (f.cur) {
+      const x = fxOf(t);
+      if (f.cur === 'KRW')     { if (x) return false; }
+      else if (f.cur === 'FX') { if (!x) return false; }
+      else if (!x || x.cur !== f.cur) return false;
+    }
+    return true;
+  }
+
+  /** 슬롯에 필터 UI 를 그린다. pool = 옵션을 뽑아낼 거래 배열 */
+  function drawFilter(slot, key, pool, rerender) {
+    const el = $(slot); if (!el) return;
+    const f = FILT[key];
+    const open = el.querySelector('details')?.open || false;
+
+    const cats = [...new Set(pool.filter(t => t.kind === 'expense').map(t => t.category))].filter(Boolean).sort();
+    const curs = [...new Set(pool.map(t => fxOf(t)?.cur).filter(Boolean))].sort();
+    const n = filtCount(f);
+
+    el.innerHTML = `<details class="fbar" ${open ? 'open' : ''}>
+      <summary>필터 ${n ? `<span class="fcount">${n}</span>` : ''}</summary>
+      <div class="fbody">
+        <div class="frow"><span class="flab">기간</span>
+          <input type="date" class="pill f-from" value="${f.from}">
+          <span style="color:var(--muted)">~</span>
+          <input type="date" class="pill f-to" value="${f.to}"></div>
+        <div class="fquick">
+          <button data-q="tm">이번달</button><button data-q="lm">지난달</button>
+          <button data-q="30">최근 30일</button><button data-q="90">최근 3개월</button>
+          <button data-q="y">올해</button><button data-q="clr">기간 해제</button>
+        </div>
+        <div class="frow"><span class="flab">분류</span>
+          <select class="pill f-cat">
+            <option value="">전체 분류</option>
+            ${cats.map(c => `<option value="${c}" ${f.cat === c ? 'selected' : ''}>${c}</option>`).join('')}
+          </select></div>
+        <div class="frow"><span class="flab">결제</span>
+          <select class="pill f-cur">
+            <option value="">전체 (원화 + 해외)</option>
+            <option value="KRW" ${f.cur === 'KRW' ? 'selected' : ''}>🇰🇷 국내 원화 결제만</option>
+            <option value="FX"  ${f.cur === 'FX'  ? 'selected' : ''}>✈️ 해외 결제 전체</option>
+            ${curs.length ? `<optgroup label="국가별">${curs.map(c =>
+              `<option value="${c}" ${f.cur === c ? 'selected' : ''}>${curName(c)}</option>`).join('')}</optgroup>` : ''}
+          </select></div>
+        <div class="fquick" style="margin-top:12px">
+          <button data-q="reset" style="border-color:var(--accent);color:var(--accent)">필터 전체 초기화</button>
+        </div>
+      </div></details>`;
+
+    const upd = () => { el.querySelector('details').open = true; rerender(); };
+    el.querySelector('.f-from').onchange = e => { f.from = e.target.value; upd(); };
+    el.querySelector('.f-to').onchange   = e => { f.to   = e.target.value; upd(); };
+    el.querySelector('.f-cat').onchange  = e => { f.cat  = e.target.value; upd(); };
+    el.querySelector('.f-cur').onchange  = e => { f.cur  = e.target.value; upd(); };
+    el.querySelectorAll('.fquick button').forEach(b => b.onclick = () => {
+      const q = b.dataset.q, now = new Date();
+      const iso = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      if (q === 'tm')      { f.from = iso(new Date(now.getFullYear(), now.getMonth(), 1)); f.to = iso(now); }
+      else if (q === 'lm') { const a = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                             f.from = iso(a); f.to = iso(new Date(now.getFullYear(), now.getMonth(), 0)); }
+      else if (q === '30') { f.from = iso(new Date(Date.now() - 29 * 864e5)); f.to = iso(now); }
+      else if (q === '90') { f.from = iso(new Date(Date.now() - 89 * 864e5)); f.to = iso(now); }
+      else if (q === 'y')  { f.from = `${now.getFullYear()}-01-01`; f.to = iso(now); }
+      else if (q === 'clr'){ f.from = ''; f.to = ''; }
+      else if (q === 'reset') { f.from = f.to = f.cat = f.cur = ''; }
+      upd();
+    });
+  }
+
+  /** 필터 결과 요약 줄 */
+  function filtSummary(f, rows) {
+    if (!filtOn(f)) return '';
+    const sum = rows.reduce((a, t) => a + (t.kind === 'income' ? 0 : t.amount), 0);
+    const bits = [];
+    if (f.from || f.to) bits.push(`${f.from || '처음'} ~ ${f.to || '오늘'}`);
+    if (f.cat) bits.push(f.cat);
+    if (f.cur) bits.push(f.cur === 'KRW' ? '국내 원화' : f.cur === 'FX' ? '해외 전체' : curName(f.cur));
+    return `<div class="fsum">${bits.join(' · ')} — ${rows.length}건 · 합계 ${fmt(sum)}</div>`;
   }
 
   /* ---------- 아이폰 설치 안내 배너 ---------- */
@@ -612,7 +728,16 @@
   $('#ledgerMore').addEventListener('click', () => { ledgerLimit += 100; renderLedger(); });
 
   function renderLedger() {
-    const base = monthTx(curMonth);
+    const f = FILT.ledger;
+    f.cat = ledgerCat;                                   // 칩과 필터의 분류는 하나로 묶는다
+    drawFilter('#fbLedger', 'ledger', VTX, () => { ledgerCat = FILT.ledger.cat; ledgerLimit = 60; renderLedger(); });
+
+    // 기간을 직접 고르면 월 이동 대신 그 기간 전체를 본다
+    const ranged = !!(f.from || f.to);
+    const base = ranged
+      ? VTX.filter(t => (!f.from || t.tx_date >= f.from) && (!f.to || t.tx_date <= f.to))
+      : monthTx(curMonth);
+
     const cats = [...new Set(base.filter(t => t.kind === 'expense').map(t => t.category))]
       .map(c => ({ c, v: base.filter(t => t.category === c && A.isHouseholdExpense(t)).reduce((a, t) => a + t.amount, 0) }))
       .sort((a, b) => b.v - a.v);
@@ -621,11 +746,11 @@
 
     let rows = base.filter(t => {
       if (ledgerKind && t.kind !== ledgerKind) return false;
-      if (ledgerCat && t.category !== ledgerCat) return false;
       if (ledgerQ && !t.merchant.includes(ledgerQ)) return false;
-      return true;
+      return passFilt(t, f);
     }).sort((a, b) => a.tx_date < b.tx_date ? 1 : (a.tx_date > b.tx_date ? -1 : (b.amount - a.amount)));
 
+    const summary = filtSummary(f, rows);
     const total = rows.length;
     rows = rows.slice(0, ledgerLimit);
     $('#ledgerMore').classList.toggle('hide', total <= ledgerLimit);
@@ -647,7 +772,8 @@
           <div class="t2">${income ? (t.income_src || '수입') : catSelect(t) + ' ' + budgetChip(t)} · ${srcLabel(t.source)}</div></div>
         <div class="amt num ${income ? 'in' : ''}">${income ? '+' : '-'}${fmt(t.amount)}</div></div>`;
     }
-    $('#ledgerList').innerHTML = html || '<p class="desc" style="margin:0;padding:12px 0">내역이 없습니다.</p>';
+    $('#ledgerList').innerHTML = summary +
+      (html || '<p class="desc" style="margin:0;padding:12px 0">조건에 맞는 내역이 없습니다.</p>');
   }
   const srcLabel = s => ({ samsung_card: '삼성카드', bank: '기업은행', sheet: '가계부 시트',
                            manual: '직접 입력', sms: '문자 자동', hyundai_card: '현대카드' }[s] || s);
@@ -905,15 +1031,23 @@
         scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
     });
 
-    // 내역
-    const sorted = rows.sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+    // 내역 (필터 적용 — 위 예산 게이지는 항상 이번 달 기준 유지)
+    const bf = FILT.budget;
+    const bgPool = TX.filter(isBudgetTx);
+    drawFilter('#fbBudget', 'budget', bgPool, () => { bgLimit = 40; renderBudget(); });
+    const listRows = filtOn(bf)
+      ? bgPool.filter(t => passFilt(t, bf))
+      : rows.slice();
+    $('#bgListTitle').textContent = filtOn(bf) ? '생활비 내역 (필터 적용)' : '이번 달 생활비 내역';
+
+    const sorted = listRows.sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
     const show = sorted.slice(0, bgLimit);
     $('#bgMore').classList.toggle('hide', sorted.length <= bgLimit);
     let html = '', last = '';
     for (const t of show) {
       if (t.tx_date !== last) {
         last = t.tx_date;
-        const day = rows.filter(x => x.tx_date === t.tx_date).reduce((a, x) => a + x.amount, 0);
+        const day = sorted.filter(x => x.tx_date === t.tx_date).reduce((a, x) => a + x.amount, 0);
         html += `<div class="day-sep"><span>${t.tx_date}</span><span class="ln"></span><span class="num">${fmt(day)}</span></div>`;
       }
       html += `<div class="row" data-id="${t.id}"><div class="ic">${C.iconOf(t.category, t.subcategory)}</div>
@@ -922,7 +1056,8 @@
         <div class="amt num">${fmt(t.amount)}</div>
         ${canEdit(t) ? '<button class="btn ghost sm bg-del" style="margin-left:8px">삭제</button>' : ''}</div>`;
     }
-    $('#bgList').innerHTML = html || '<p class="desc" style="margin:0;padding:10px 0">아직 사용 내역이 없습니다.</p>';
+    $('#bgList').innerHTML = filtSummary(bf, sorted) +
+      (html || '<p class="desc" style="margin:0;padding:10px 0">조건에 맞는 내역이 없습니다.</p>');
   }
 
   $('#bgList')?.addEventListener('click', async e => {
