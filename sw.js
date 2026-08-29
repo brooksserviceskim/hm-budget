@@ -1,0 +1,33 @@
+/* 현우 미란 가계부 · 오프라인 캐시 */
+const CACHE = 'hm-budget-v24';
+const ASSETS = [
+  './', './index.html', './install.html', './css/app.css',
+  './js/config.js', './js/categorize.js', './js/parsers.js', './js/store.js',
+  './js/analytics.js', './js/app.js',
+  './data/benchmark.js', './data/seed.js', './data/coupang.js', './data/lunar.js', './js/lunar.js',
+  './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(ks =>
+    Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET') return;
+  // Supabase API 는 항상 네트워크
+  if (url.hostname.endsWith('supabase.co')) return;
+  // 앱 셸: 네트워크 우선 → 실패 시 캐시
+  e.respondWith(
+    fetch(e.request).then(res => {
+      if (res && res.status === 200 && url.origin === location.origin) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
+  );
+});
