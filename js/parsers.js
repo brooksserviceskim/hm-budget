@@ -419,7 +419,7 @@
           out.push(rowFrom({
             source: 'samsung_card', tx_date: d, merchant,
             amount: 0, raw_amount: 0,            // 원화는 앱이 결제일 환율로 채운다
-            memo: `삼성카드 해외 · FX:${cur}:${fxAmt.toFixed(2)}` + (usd ? ` (USD ${usd})` : ''),
+            memo: `삼성카드 해외 이용내역 · FX:${cur}:${fxAmt.toFixed(2)}` + (usd ? ` (USD ${usd})` : ''),
             fingerprint: fp(['sscu-fx', d, merchant, cur, fxAmt.toFixed(2)])
           }));
         }
@@ -513,7 +513,7 @@
         }
         out.push(rowFrom({
           source, tx_date: date, merchant, amount, installment,
-          memo: label,
+          memo: label + ' 이용내역',
           fingerprint: fp([source, date, merchant, Math.round(amount)])
         }));
       }

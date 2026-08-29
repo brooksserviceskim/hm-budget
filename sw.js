@@ -1,5 +1,5 @@
 /* 현우 미란 가계부 · 오프라인 캐시 */
-const CACHE = 'hm-budget-v24';
+const CACHE = 'hm-budget-v25';
 const ASSETS = [
   './', './index.html', './install.html', './css/app.css',
   './js/config.js', './js/categorize.js', './js/parsers.js', './js/store.js',

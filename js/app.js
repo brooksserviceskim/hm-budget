@@ -254,6 +254,30 @@
     }
     for (const s of kill) { await S.deleteTx(s.id); }
     if (kill.length) TX = TX.filter(t => !kill.includes(t));
+    return kill.length + await dedupeUsageVsStatement();
+  }
+
+  /**
+   * 같은 결제가 '이용내역'(카드사 조회 파일) 과 '명세서' 양쪽으로 들어온 경우.
+   * 명세서가 최종 청구 기준이므로 이용내역 쪽을 지운다.
+   */
+  async function dedupeUsageVsStatement() {
+    if (!canWrite()) return 0;
+    const isUsage = t => /이용내역/.test(t.memo || '');
+    const cards = TX.filter(t => t.kind === 'expense' && CARD_SRC.has(t.source));
+    const usage = cards.filter(isUsage);
+    const stmt  = cards.filter(t => !isUsage(t));
+    if (!usage.length || !stmt.length) return 0;
+    const used = new Set(); const kill = [];
+    for (const u of usage) {
+      const fx = fxOf(u);
+      const hit = stmt.find(c => !used.has(c.id) && c.source === u.source &&
+        c.tx_date === u.tx_date && merKey(c.merchant) === merKey(u.merchant) &&
+        (fx ? true : +c.amount === +u.amount));       // 해외건은 원화가 달라 금액 비교 생략
+      if (hit) { used.add(hit.id); kill.push(u); }
+    }
+    for (const u of kill) { await S.deleteTx(u.id); }
+    if (kill.length) TX = TX.filter(t => !kill.includes(t));
     return kill.length;
   }
 
