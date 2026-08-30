@@ -1,5 +1,5 @@
 /* 현우 미란 가계부 · 오프라인 캐시 */
-const CACHE = 'hm-budget-v26';
+const CACHE = 'hm-budget-v27';
 const ASSETS = [
   './', './index.html', './install.html', './css/app.css',
   './js/config.js', './js/categorize.js', './js/parsers.js', './js/store.js',
@@ -18,8 +18,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
-  // Supabase API 는 항상 네트워크
-  if (url.hostname.endsWith('supabase.co')) return;
+  // 외부 API(Supabase · 환율 등)는 서비스워커가 손대지 않는다
+  if (url.origin !== location.origin) return;
   // 앱 셸: 네트워크 우선 → 실패 시 캐시
   e.respondWith(
     fetch(e.request).then(res => {

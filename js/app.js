@@ -169,21 +169,37 @@
     const key = `fx_${cur}_${date}`;
     const hit = localStorage.getItem(key);
     if (hit) return { rate: +hit, provisional: false };
-    const get = async u => { try { const r = await fetch(u); return await r.json(); } catch (e) { return null; } };
-    try {
-      let j = await get(`https://api.frankfurter.app/${date}?from=${cur}&to=KRW`);
-      if (!j?.rates?.KRW) {                       // 아직 고시 전이면 최신 환율로 임시 계산
-        j = await get(`https://api.frankfurter.app/latest?from=${cur}&to=KRW`);
-      }
-      const rate = j?.rates?.KRW;
-      if (!rate) return null;
-      const gap = (new Date(date) - new Date(j.date)) / 86400000;
-      const old = (Date.now() - new Date(date)) / 86400000;
-      // 요청일 환율이 그대로 나왔거나, 5일 넘게 지난 건이면 더 좋아질 게 없으니 확정
-      const provisional = !(gap <= 0 || old > 5);
-      if (!provisional) localStorage.setItem(key, String(rate));
-      return { rate, provisional };
-    } catch (e) { return null; }
+
+    const jget = async u => {
+      try { const r = await fetch(u); if (!r.ok) return null; return await r.json(); }
+      catch (e) { return null; }
+    };
+    const lc = cur.toLowerCase();
+    let rate = null, on = null;
+
+    // 1) 유럽중앙은행 고시 (리다이렉트 없는 정식 주소)
+    let j = await jget(`https://api.frankfurter.dev/v1/${date}?base=${cur}&symbols=KRW`);
+    if (j && j.rates && j.rates.KRW) { rate = j.rates.KRW; on = j.date; }
+
+    // 2) 예비 : jsDelivr 통화 API
+    if (!rate) {
+      j = await jget(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${date}/v1/currencies/${lc}.json`)
+       || await jget(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${lc}.json`);
+      if (j && j[lc] && j[lc].krw) { rate = j[lc].krw; on = j.date || date; }
+    }
+
+    // 3) 그래도 없으면 최신 환율
+    if (!rate) {
+      j = await jget(`https://api.frankfurter.dev/v1/latest?base=${cur}&symbols=KRW`);
+      if (j && j.rates && j.rates.KRW) { rate = j.rates.KRW; on = j.date; }
+    }
+    if (!rate) return null;
+
+    const gap = (new Date(date) - new Date(on)) / 86400000;   // 요청일보다 오래된 고시면 +
+    const age = (Date.now() - new Date(date)) / 86400000;
+    const provisional = !(gap <= 0 || age > 5);
+    if (!provisional) localStorage.setItem(key, String(rate));
+    return { rate, provisional };
   }
 
   /** 외화 → 원화 (실패하면 null) */
