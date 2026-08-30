@@ -2252,7 +2252,11 @@
     const bf = await backfillTime(seen);
     if (bf.err) {
       lines.push(`⚠️ 결제 시각 저장 실패 — ${bf.err}`);
-      lines.push(`   (Supabase 에서 migration-time.sql 을 실행했는지 확인해 주세요)`);
+      if (/schema cache|PGRST204|tx_time/i.test(bf.err)) {
+        lines.push(`   Supabase SQL Editor 에서  notify pgrst, 'reload schema';  를 실행한 뒤 다시 올려주세요.`);
+      } else {
+        lines.push(`   Supabase 에서 migration-time.sql 을 실행했는지 확인해 주세요.`);
+      }
     } else if (bf.n) {
       lines.push(`🕒 이미 저장돼 있던 ${bf.n}건에 결제 시각을 채웠습니다`);
     } else if (bf.want) {
