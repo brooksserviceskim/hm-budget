@@ -480,6 +480,26 @@
     return ` <span class="tag fx">${f.cur} ${nf.format(f.amt)}</span>${wait}`;
   }
 
+  /**
+   * 이미 저장된 건에 결제 시각만 채워 넣는다.
+   * (시각 칸이 생기기 전에 올린 파일을 다시 올렸을 때 중복으로 걸러지므로 별도 처리)
+   */
+  async function backfillTime(rows) {
+    if (!canWrite()) return 0;
+    const want = rows.filter(r => r.tx_time && r.fingerprint);
+    if (!want.length) return 0;
+    const byFp = new Map();
+    for (const t of TX) if (!t.tx_time && t.fingerprint) byFp.set(t.fingerprint, t);
+    let n = 0;
+    for (const r of want) {
+      const t = byFp.get(r.fingerprint);
+      if (!t) continue;
+      try { await S.updateTx(t.id, { tx_time: r.tx_time }); t.tx_time = r.tx_time; n++; }
+      catch (e) { /* 무시 */ }
+    }
+    return n;
+  }
+
   /* ============================================================
      문자 자동 등록 ↔ 카드 명세서 중복 제거
      같은 결제가 문자로 한 번, 나중에 명세서로 또 한 번 들어오는 것을 막는다.
@@ -2174,6 +2194,7 @@
     const lines = [];
     const draw = tail => { log.textContent = lines.concat(tail ? [tail] : []).join('\n'); log.scrollTop = log.scrollHeight; };
     let failCount = 0;
+    const seen = [];                                  // 이번에 읽은 모든 행 (시각 채우기용)
 
     for (const f of files) {
       draw(`${f.name} 읽는 중...`);
@@ -2194,6 +2215,7 @@
             res = await S.insertCoupang(parsed.rows);
           } else {
             const clean = parsed.rows.map(r => { const { _workHint, ...rest } = r; return Object.assign(rest, { owner: USER.name }); });
+            seen.push(...clean);
             res = await S.insertTx(clean);
           }
         }
@@ -2207,6 +2229,9 @@
     }
 
     await reload();
+    draw('결제 시각 확인 중...');
+    const filled = await backfillTime(seen);
+    if (filled) lines.push(`🕒 이미 저장돼 있던 ${filled}건에 결제 시각을 채웠습니다`);
     const dup = await dedupeSmsVsCard();
     if (dup) { lines.push(`↻ 중복 ${dup}건을 정리했습니다`); draw(); }
     draw('외화 결제 환율 계산 중...');
