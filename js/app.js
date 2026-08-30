@@ -34,6 +34,7 @@
 
   /* ---------- 용돈 사용 내역 (삼성카드) ---------- */
   let alRange = 'cur', alLimit = 60;
+  let LIMITS = { lunch: 260000, coffee: 100000 };
 
   function allowancePool() {
     return TX.filter(t => t.kind === 'expense' && isSamsung(t) && A.isHouseholdExpense(t));
@@ -61,7 +62,235 @@
   });
   $('#alMore')?.addEventListener('click', () => { alLimit += 60; renderAllowance(); });
 
+  /* ============================================================
+     용돈 분석 : 점심 · 커피 · AI 구독/API
+     ============================================================ */
+  const LUNCH_FROM = '11:00', LUNCH_TO = '14:00';
+  const isCoffee = t => t.subcategory === '카페';
+  const isLunch = t => t.category === '음식·숙박' && !isCoffee(t) && t.subcategory !== '배달' &&
+                       !!t.tx_time && t.tx_time >= LUNCH_FROM && t.tx_time < LUNCH_TO;
+  const AI_MER = /google|제미나이|gemini|anthropic|claude|openai|chatgpt|perplexity|adobe|어도비|cursor/i;
+  const aiBrand = m => /anthropic|claude/i.test(m) ? 'Claude'
+                    : /openai|chatgpt/i.test(m) ? 'OpenAI'
+                    : /google|제미나이|gemini/i.test(m) ? '제미나이 · 구글'
+                    : /adobe|어도비/i.test(m) ? 'Adobe' : '기타';
+  const ymOf = t => t.tx_date.slice(0, 7);
+  const monthsBack = n => {
+    const out = []; const d = new Date();
+    for (let i = n - 1; i >= 0; i--) {
+      const x = new Date(d.getFullYear(), d.getMonth() - i, 1);
+      out.push(`${x.getFullYear()}-${pad2(x.getMonth() + 1)}`);
+    }
+    return out;
+  };
+
+  /** 김현우 개인(용돈) 기준 지출 풀 */
+  function myPool() {
+    return TX.filter(t => t.kind === 'expense' && A.isHouseholdExpense(t) &&
+                          (t.owner === '김현우' || !t.owner) && +t.amount > 0);
+  }
+
+  /** 한도 게이지 한 벌 그리기 */
+  function gauge(pre, used, cap, label, count) {
+    const now = new Date();
+    const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const today = now.getDate();
+    const left = cap - used;
+    const pace = today / dim * 100;
+    const pct = cap ? used / cap * 100 : 0;
+    $(`#${pre}Left`).textContent = cap ? fmt(left) : fmt(used);
+    $(`#${pre}Left`).style.color = cap && left < 0 ? 'var(--expense)' : 'var(--ink)';
+    $(`#${pre}Sub`).innerHTML = !cap ? `이번 달 ${count}건`
+      : left >= 0
+        ? `남은 ${dim - today + 1}일 동안 하루 <b>${fmt(left / Math.max(1, dim - today + 1))}</b> 까지`
+        : `한도를 <b class="up">${fmt(-left)}</b> 넘겼습니다`;
+    $(`#${pre}Bar`).style.width = Math.min(100, pct) + '%';
+    $(`#${pre}Bar`).style.background = pct > pace + 8 ? 'var(--expense)'
+      : (pre === 'coff' ? 'var(--purple)' : 'var(--accent)');
+    $(`#${pre}Pace`).style.left = Math.min(100, pace) + '%';
+    $(`#${pre}Used`).textContent = `사용 ${fmt(used)} · ${count}건`;
+    $(`#${pre}Cap`).textContent = cap ? `한도 ${fmt(cap)}` : '한도 없음';
+    const proj = used / Math.max(1, today) * dim;
+    $(`#${pre}Msg`).innerHTML = !cap
+      ? `${label} 한도를 정해두면 남은 금액을 계산해 드립니다.`
+      : `이대로면 월말 <b>${fmt(proj)}</b> 예상. ` +
+        (proj > cap ? `한도보다 <b class="up">${fmt(proj - cap)}</b> 초과할 속도입니다.`
+                    : `한도 안에서 <b class="down">${fmt(cap - proj)}</b> 여유가 있겠습니다.`);
+    return { used, cap, left, proj, count };
+  }
+
+  function renderAllowanceAnalysis() {
+    const ym = todayYM();
+    const pool = myPool();
+    const cur = pool.filter(t => ymOf(t) === ym);
+
+    /* ---- 점심 · 커피 ---- */
+    const lunchTx = cur.filter(isLunch), coffTx = cur.filter(isCoffee);
+    const L = gauge('lunch', lunchTx.reduce((a, t) => a + t.amount, 0), +LIMITS.lunch || 0, '점심', lunchTx.length);
+    const K = gauge('coff', coffTx.reduce((a, t) => a + t.amount, 0), +LIMITS.coffee || 0, '커피', coffTx.length);
+
+    /* ---- 월별 그래프 ---- */
+    const ms = monthsBack(8);
+    const lunchM = ms.map(m => pool.filter(t => ymOf(t) === m && isLunch(t)).reduce((a, t) => a + t.amount, 0));
+    const coffM  = ms.map(m => pool.filter(t => ymOf(t) === m && isCoffee(t)).reduce((a, t) => a + t.amount, 0));
+    const noTime = ms.filter((m, i) => lunchM[i] === 0 &&
+      pool.some(t => ymOf(t) === m && t.category === '음식·숙박' && !t.tx_time));
+    const okM = lunchM.filter(v => v > 0);
+    $('#lcDesc').innerHTML =
+      `점심 월평균 <b>${fmt(okM.length ? okM.reduce((a, b) => a + b, 0) / okM.length : 0)}</b> · ` +
+      `커피 월평균 <b>${fmt(coffM.filter(v => v).length ? coffM.reduce((a, b) => a + b, 0) / coffM.filter(v => v).length : 0)}</b>` +
+      (noTime.length ? `<br><span class="up">${noTime.map(m => +m.slice(5) + '월').join(', ')} 은 결제 시각이 없어 점심 구분이 안 됩니다. 삼성카드 홈페이지에서 해당 월 <b>이용내역</b>을 받아 올리면 채워집니다.</span>` : '');
+    drawChart('chLunchCoffee', {
+      data: { labels: ms.map(m => +m.slice(5) + '월'),
+        datasets: [
+          { type: 'bar', label: '점심', data: lunchM, backgroundColor: '#5eead4', borderRadius: 4 },
+          { type: 'bar', label: '커피', data: coffM, backgroundColor: '#c4b5fd', borderRadius: 4 },
+          { type: 'line', label: '점심 한도', data: ms.map(() => +LIMITS.lunch || null),
+            borderColor: '#f87171', borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
+        ] },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 10.5 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => man(v) } } } }
+    });
+
+    /* ---- AI · 소프트웨어 ---- */
+    const aiTx = pool.filter(t => AI_MER.test(t.merchant));
+    // 달러로 결제되는 구독은 원화 금액이 매달 달라진다 → 외화 금액 기준으로 묶는다
+    const byId = new Map(aiTx.map(t => [t.id, t]));
+    const normed = aiTx.map(t => {
+      const f = fxOf(t);
+      return Object.assign({}, t, { amount: f ? Math.round(f.amt * 100) : Math.round(t.amount) });
+    });
+    const subs = A.detectSubs(normed, new Date().toISOString().slice(0, 10)).map(x => {
+      const rs = x.ids.map(i => byId.get(i)).filter(Boolean);
+      const last = rs[rs.length - 1];
+      const f = last && fxOf(last);
+      return Object.assign({}, x, {
+        amount: last ? +last.amount : x.amount,
+        total: rs.reduce((a, r) => a + (+r.amount || 0), 0),
+        fxLabel: f ? `${f.cur} ${f.amt.toFixed(2)}` : ''
+      });
+    });
+    const subIds = new Set(subs.flatMap(s => s.ids));
+    const liveSubs = subs.filter(s => s.active);
+    const subMonthly = liveSubs.reduce((a, s) =>
+      a + (s.cycle === 'year' ? s.amount / 12 : s.amount), 0);
+    const apiTx = aiTx.filter(t => !subIds.has(t.id));
+    const apiM = ms.map(m => apiTx.filter(t => ymOf(t) === m).reduce((a, t) => a + t.amount, 0));
+    const apiAvg = apiM.filter(v => v).length ? apiM.reduce((a, b) => a + b, 0) / apiM.filter(v => v).length : 0;
+
+    const st = (n, v, d, c) => `<div class="stat"><div class="n"><i style="background:${c}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#aiStats').innerHTML =
+      st('구독료 (월 정액)', fmt(subMonthly), `${liveSubs.length}건`, 'var(--accent)') +
+      st('API 이번 달', fmt(apiM[apiM.length - 1] || 0), `${apiTx.filter(t => ymOf(t) === ym).length}건`, 'var(--purple)') +
+      st('API 월평균', fmt(apiAvg), '변동비', 'var(--warn)') +
+      st('AI 합계 (월)', fmt(subMonthly + apiAvg), '구독 + API 평균', 'var(--ink)');
+
+    $('#aiSubs').innerHTML = liveSubs.map(s => `<div class="sub-row">
+        <div class="ic">${C.iconOf(s.category, s.sub)}</div>
+        <div class="b"><div class="t1">${esc(s.merchant)}
+          <span class="tag">${aiBrand(s.merchant)}</span>
+          ${s.fxLabel ? `<span class="tag fx">${s.fxLabel}</span>` : ''}</div>
+          <div class="t2">매월 ${s.day}일 · ${s.count}회 · ${s.first} 시작</div></div>
+        <div class="amt"><div class="v num">${fmt(s.amount)}</div>
+          <div class="c">누적 ${fmt(s.total)}</div></div></div>`).join('')
+      || '<p class="desc" style="margin:0">정기 구독으로 잡힌 건이 없습니다.</p>';
+
+    const byBrand = new Map();
+    for (const t of apiTx.filter(t => ms.includes(ymOf(t)))) {
+      const b = aiBrand(t.merchant);
+      byBrand.set(b, (byBrand.get(b) || 0) + t.amount);
+    }
+    const PAL = { 'Claude': '#d97757', 'OpenAI': '#10a37f', '제미나이 · 구글': '#4285f4', 'Adobe': '#eb1000', '기타': '#94a3b8' };
+    drawChart('chApi', {
+      type: 'bar',
+      data: { labels: ms.map(m => +m.slice(5) + '월'),
+        datasets: [...byBrand.keys()].map(b => ({
+          label: b, backgroundColor: PAL[b] || '#94a3b8', borderRadius: 3,
+          data: ms.map(m => apiTx.filter(t => ymOf(t) === m && aiBrand(t.merchant) === b)
+                                 .reduce((a, t) => a + t.amount, 0))
+        })) },
+      options: { maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 9, font: { size: 10.5 } } },
+                   tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt(c.parsed.y)}` } } },
+        scales: { x: { stacked: true, grid: { display: false } },
+                  y: { stacked: true, ticks: { callback: v => man(v) } } } }
+    });
+    $('#aiApi').innerHTML = [...byBrand.entries()].sort((a, b) => b[1] - a[1]).map(([b, v]) => `
+      <div class="peer"><div class="pn">${b}</div>
+        <div class="pb"><i style="width:${Math.min(100, v / Math.max(...byBrand.values()) * 100)}%;background:${PAL[b] || '#94a3b8'}"></i></div>
+        <div class="pv">${fmt(v)}</div></div>`).join('')
+      || '<p class="desc" style="margin:0">API 사용료로 잡힌 건이 없습니다.</p>';
+
+    /* ---- 경고 ---- */
+    const over = [];
+    if (L.cap && L.used > L.cap) over.push(`점심 <b>${fmt(L.used - L.cap)}</b> 초과`);
+    else if (L.cap && L.proj > L.cap) over.push(`점심은 이 속도면 <b>${fmt(L.proj - L.cap)}</b> 초과`);
+    if (K.cap && K.used > K.cap) over.push(`커피 <b>${fmt(K.used - K.cap)}</b> 초과`);
+    else if (K.cap && K.proj > K.cap) over.push(`커피는 이 속도면 <b>${fmt(K.proj - K.cap)}</b> 초과`);
+    const hard = (L.cap && L.used > L.cap) || (K.cap && K.used > K.cap);
+    $('#alWarn').innerHTML = over.length
+      ? `<div class="warn-box ${hard ? 'bad' : 'mid'}"><div class="wt">${hard ? '한도를 넘겼습니다' : '한도를 넘길 속도입니다'}</div>
+         <div class="wd">${over.join('<br>')}</div></div>`
+      : `<div class="warn-box ok"><div class="wt">한도 안에서 쓰고 있습니다</div>
+         <div class="wd">점심 ${fmt(L.used)} / ${fmt(L.cap)} · 커피 ${fmt(K.used)} / ${fmt(K.cap)}</div></div>`;
+
+    /* ---- 또래 비교 ---- */
+    const B = window.PERSONAL_BENCH;
+    const lunchAvg = okM.length ? okM.reduce((a, b) => a + b, 0) / okM.length : L.used;
+    const coffAvg = coffM.filter(v => v).length
+      ? coffM.reduce((a, b) => a + b, 0) / coffM.filter(v => v).length : K.used;
+    $('#peerNote').innerHTML = `${B.note} 기준입니다. <span class="cap">${B.source}</span>`;
+    const bar = (name, mine, avg, color) => {
+      const max = Math.max(mine, avg) * 1.15 || 1;
+      const gap = avg ? (mine - avg) / avg * 100 : 0;
+      return `<div class="peer"><div class="pn">${name}</div>
+        <div class="pb"><i style="width:${mine / max * 100}%;background:${color}"></i></div>
+        <div class="pv">${fmt(mine)}<br><span class="cap ${gap > 0 ? 'up' : 'down'}">평균 ${gap > 0 ? '+' : ''}${gap.toFixed(0)}%</span></div></div>
+        <div class="peer"><div class="pn cap">또래 평균</div>
+        <div class="pb"><i style="width:${avg / max * 100}%;background:#cbd5e1"></i></div>
+        <div class="pv cap">${fmt(avg)}</div></div>`;
+    };
+    const recs = [];
+    const lg = (lunchAvg - B.lunch.avg) / B.lunch.avg * 100;
+    const kg = (coffAvg - B.coffee.avg) / B.coffee.avg * 100;
+    if (lg > 15) recs.push(`점심이 또래보다 <b>${lg.toFixed(0)}% 많습니다</b>. 한 끼 평균이 ${fmt(L.count ? L.used / L.count : 0)} 인데 시세는 ${fmt(B.lunch.unit)} 안팎입니다. 주 1회만 줄여도 월 ${fmt((lunchAvg / Math.max(1, 20)) * 4)} 아낍니다.`);
+    else if (lg < -15) recs.push(`점심은 또래보다 <b>${(-lg).toFixed(0)}% 적게</b> 씁니다. 이대로 유지하세요.`);
+    else recs.push('점심은 또래 평균 수준입니다.');
+    if (kg > 15) recs.push(`커피가 또래보다 <b>${kg.toFixed(0)}% 많습니다</b>. 월 ${fmt(coffAvg - B.coffee.avg)} 차이입니다.`);
+    else if (kg < -15) recs.push(`커피는 또래보다 <b>${(-kg).toFixed(0)}% 적습니다</b>.`);
+    if (K.cap && (K.used > K.cap || K.proj > K.cap) && coffTx.length) {
+      const per = K.used / coffTx.length;
+      const top = [...coffTx].sort((a, b) => b.amount - a.amount).slice(0, 3);
+      recs.push(`커피 한 번에 평균 <b>${fmt(per)}</b> 씁니다. 이번 달 가장 큰 3건은 ` +
+        top.map(t => `${esc(t.merchant)} ${fmt(t.amount)}`).join(', ') +
+        ` 입니다. 이 3건만 빼도 <b>${fmt(top.reduce((a, t) => a + t.amount, 0))}</b> 이 줄어 한도 안에 들어옵니다.`);
+    }
+    if (subMonthly > 100000) recs.push(`AI·소프트웨어 구독료가 월 <b>${fmt(subMonthly)}</b> 입니다. 안 쓰는 게 있는지 <b>더보기 → 정기결제</b>에서 확인해 보세요.`);
+    if (apiAvg > subMonthly) recs.push(`API 사용료(월 평균 ${fmt(apiAvg)})가 구독료보다 큽니다. 사업 매출과 견줘 볼 필요가 있습니다.`);
+    const totalMine = lunchAvg + coffAvg;
+    const totalAvg = B.lunch.avg + B.coffee.avg;
+    recs.push(`점심+커피 합계는 월 <b>${fmt(totalMine)}</b>, 또래 평균은 ${fmt(totalAvg)} 입니다. 연으로는 ${fmt(Math.abs(totalMine - totalAvg) * 12)} ${totalMine > totalAvg ? '더 씁니다' : '덜 씁니다'}.`);
+    $('#peerBody').innerHTML =
+      bar('내 점심 (월평균)', lunchAvg, B.lunch.avg, '#14b8a6') +
+      bar('내 커피 (월평균)', coffAvg, B.coffee.avg, '#8b5cf6') +
+      `<ul class="rec">${recs.map(r => `<li>${r}</li>`).join('')}</ul>`;
+
+    $('#limLunch').value = +LIMITS.lunch || '';
+    $('#limCoffee').value = +LIMITS.coffee || '';
+  }
+
+  $('#limForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    LIMITS = { lunch: +$('#limLunch').value || 0, coffee: +$('#limCoffee').value || 0 };
+    await S.setSetting('allowance_limits', LIMITS);
+    renderAllowance(); toast('한도를 저장했습니다');
+  });
+
   function renderAllowance() {
+    try { renderAllowanceAnalysis(); } catch (e) { console.error('용돈 분석', e); }
     drawFilter('#fbAllow', 'allow', allowancePool(), () => { alLimit = 60; renderAllowance(); });
     const rows = allowanceRows();
     const total = rows.reduce((a, t) => a + t.amount, 0);
@@ -501,6 +730,7 @@
       FIXED = await S.listFixed();
     }
     BUDGET = await S.getSetting('budget', { amount: 1000000, startDay: 1 }).catch(() => BUDGET);
+    LIMITS = await S.getSetting('allowance_limits', LIMITS).catch(() => LIMITS);
     INCOME_FIXED = await S.getSetting('income_fixed', INCOME_FIXED).catch(() => INCOME_FIXED);
     EVENTS = await S.listEvents().catch(() => []);
     CP = await S.listCoupang().catch(() => []);

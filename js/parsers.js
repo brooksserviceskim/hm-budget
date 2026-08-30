@@ -20,6 +20,22 @@
     return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
   };
   const S = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  /** '16:30:31' · '1630' · 엑셀 시간(0~1 소수) → 'HH:MM' */
+  const hhmm = v => {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number') {
+      if (v > 0 && v < 1) {                       // 엑셀 시간 값
+        const m = Math.round(v * 1440);
+        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      }
+      const n = String(Math.round(v)).padStart(4, '0');
+      return n.length >= 4 ? `${n.slice(0, 2)}:${n.slice(2, 4)}` : null;
+    }
+    const t = String(v).match(/(\d{1,2}):(\d{2})/);
+    if (t) return `${t[1].padStart(2, '0')}:${t[2]}`;
+    const d = String(v).replace(/\D/g, '');
+    return d.length >= 4 ? `${d.slice(0, 2)}:${d.slice(2, 4)}` : null;
+  };
 
   // 동일 (일자·가맹점·금액) 이 반복될 때를 위한 일련번호 부여
   function fpFactory() {
@@ -109,6 +125,7 @@
       kind: o.kind || 'expense',
       source: o.source,
       tx_date: o.tx_date,
+      tx_time: o.tx_time || null,
       merchant: (o.kind === 'income' ? o.merchant : C.normalizeMerchant(o.merchant)),
       amount: Math.round(o.amount),
       raw_amount: Math.round(o.raw_amount ?? o.amount),
@@ -407,7 +424,8 @@
 
       /* ---------- 해외 ---------- */
       if (cLocal >= 0) {
-        const cAmt = col(/현지이용금액/), cUsd = col(/승인금액/), cCx = col(/취소구분/);
+        const cAmt = col(/현지이용금액/), cUsd = col(/승인금액/), cCx = col(/취소구분/),
+              cTm = col(/승인시각|승인시간/);
         for (const r of rows.slice(1)) {
           const d = anyDate(r[cDate]); if (!d) continue;
           if (cCx >= 0 && /취소/.test(S(r[cCx]))) continue;
@@ -417,7 +435,7 @@
           if (!cur || !fxAmt) continue;
           const usd = num(r[cUsd]);
           out.push(rowFrom({
-            source: 'samsung_card', tx_date: d, merchant,
+            source: 'samsung_card', tx_date: d, tx_time: hhmm(r[cTm]), merchant,
             amount: 0, raw_amount: 0,            // 원화는 앱이 결제일 환율로 채운다
             memo: `삼성카드 해외 이용내역 · FX:${cur}:${fxAmt.toFixed(2)}` + (usd ? ` (USD ${usd})` : ''),
             fingerprint: fp(['sscu-fx', d, merchant, cur, fxAmt.toFixed(2)])
@@ -427,7 +445,7 @@
       }
 
       /* ---------- 국내 ---------- */
-      const cAmt  = col(/승인금액/), cInst = col(/할부개월/),
+      const cAmt  = col(/승인금액/), cInst = col(/할부개월/), cTime = col(/승인시각|승인시간/),
             cType = col(/일시불할부구분/), cNo = col(/승인번호/), cCx = col(/취소여부/);
       if (cAmt < 0) continue;
 
@@ -450,7 +468,8 @@
           installment = m ? `${m}개월` : '할부';
         }
         out.push(rowFrom({
-          source: 'samsung_card', tx_date: d, merchant, amount: amt, installment,
+          source: 'samsung_card', tx_date: d, tx_time: hhmm(r[cTime]),
+          merchant, amount: amt, installment,
           memo: '삼성카드 이용내역',
           fingerprint: fp(['sscu', d, merchant, Math.round(amt), S(r[cNo])])
         }));
@@ -466,13 +485,13 @@
   const CU_DATE = /(이용일|승인일|거래일|매출일|사용일|이용일자|승인일자|거래일자)/;
   const CU_AMT  = /(이용금액|승인금액|거래금액|사용금액|이용액|결제금액|금액)/;
   const CU_MER  = /(가맹점|이용하신곳|이용가맹점|상호|사용처|가맹점명|이용내용)/;
-  const CU_INST = /(할부|이용구분|결제구분|할부개월)/;
+  const CU_INST = /(할부|이용구분|결제구분|결제방법|할부개월)/;
   const CU_STAT = /(상태|승인구분|취소|매입구분)/;
 
   /** 헤더 행을 찾아 열 위치를 돌려준다. 못 찾으면 null */
   function cuHeader(rows) {
     for (let i = 0; i < Math.min(15, rows.length); i++) {
-      const head = rows[i].map(x => S(x));
+      const head = rows[i].map(x => S(x).replace(/\s+/g, ''));   // '이용\n시간' 같은 줄바꿈 제거
       const find = re => head.findIndex(h => h && re.test(h));
       const d = find(CU_DATE), m = find(CU_MER);
       if (d < 0 || m < 0) continue;
@@ -480,7 +499,8 @@
       let a = head.findIndex(h => h && /(이용금액|승인금액|거래금액|사용금액|이용액)/.test(h));
       if (a < 0) a = find(CU_AMT);
       if (a < 0) continue;
-      return { i, d, a, m, inst: find(CU_INST), stat: find(CU_STAT), head };
+      return { i, d, a, m, inst: find(CU_INST), stat: find(CU_STAT),
+               time: head.findIndex(h => h && /(승인시각|승인시간|이용시각|이용시간|거래시각|거래시간)/.test(h)), head };
     }
     return null;
   }
@@ -512,7 +532,8 @@
           if (v && !/일시불|일시/.test(v)) installment = v;
         }
         out.push(rowFrom({
-          source, tx_date: date, merchant, amount, installment,
+          source, tx_date: date, tx_time: H.time >= 0 ? hhmm(r[H.time]) : null,
+          merchant, amount, installment,
           memo: label + ' 이용내역',
           fingerprint: fp([source, date, merchant, Math.round(amount)])
         }));

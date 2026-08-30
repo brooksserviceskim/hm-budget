@@ -522,6 +522,7 @@
   const dnum = s => new Date(s + 'T00:00:00Z').getTime();
   const day = t => +t.tx_date.slice(8, 10);
   function modeDay(rows) {                       // 가장 자주 나온 결제일
+    if (!rows || !rows.length) return 0;
     const c = new Map();
     for (const r of rows) c.set(day(r), (c.get(day(r)) || 0) + 1);
     return [...c.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
@@ -585,8 +586,9 @@
             }
           }
           chains.forEach(c => c.rows.sort((a, b) => a.tx_date < b.tx_date ? -1 : 1));
+          for (let i = chains.length - 1; i >= 0; i--) if (!chains[i].rows.length) chains.splice(i, 1);
         }
-        chains.forEach(c => { c.day = modeDay(c.rows.length ? c.rows : [{ tx_date: '2000-01-01' }]); });
+        chains.forEach(c => { c.day = modeDay(c.rows); });
       }
 
       for (const c of chains) {
@@ -601,7 +603,8 @@
           day: c.day,
           count: c.rows.length, first: first.tx_date, last: last.tx_date,
           total: c.rows.reduce((a, r) => a + Math.round(r.amount), 0),
-          active: gapDays <= limit,
+          ids: c.rows.map(r => r.id).filter(x => x != null),
+        active: gapDays <= limit,
           sinceDays: Math.round(gapDays),
           category: last.category, sub: last.subcategory
         });

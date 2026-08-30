@@ -381,6 +381,71 @@
 
       <div class="hscroll" id="alStats"></div>
 
+      <div id="alWarn"></div>
+
+      <div class="card">
+        <h2>점심 식대 <span class="cap" style="font-weight:600">평일 11~14시 · 카페 제외</span></h2>
+        <div class="big num" id="lunchLeft">—</div>
+        <div class="cap" id="lunchSub" style="margin-top:6px"></div>
+        <div class="track" style="margin-top:16px;height:12px">
+          <div class="me" id="lunchBar" style="width:0%;background:var(--accent)"></div>
+          <div class="avg" id="lunchPace" style="left:0%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <span class="cap" id="lunchUsed"></span><span class="cap" id="lunchCap"></span>
+        </div>
+        <p class="desc" style="margin:12px 0 0" id="lunchMsg"></p>
+      </div>
+
+      <div class="card">
+        <h2>커피 <span class="cap" style="font-weight:600">카페 결제 전체</span></h2>
+        <div class="big num" id="coffLeft">—</div>
+        <div class="cap" id="coffSub" style="margin-top:6px"></div>
+        <div class="track" style="margin-top:16px;height:12px">
+          <div class="me" id="coffBar" style="width:0%;background:var(--purple)"></div>
+          <div class="avg" id="coffPace" style="left:0%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <span class="cap" id="coffUsed"></span><span class="cap" id="coffCap"></span>
+        </div>
+        <p class="desc" style="margin:12px 0 0" id="coffMsg"></p>
+      </div>
+
+      <div class="card">
+        <h2>월별 점심 · 커피</h2>
+        <p class="desc" id="lcDesc">—</p>
+        <div class="chart-box"><canvas id="chLunchCoffee"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>AI · 소프트웨어</h2>
+        <p class="desc">매달 같은 금액이 빠지는 <b>구독료</b>와, 쓴 만큼 내는 <b>API 사용료</b>를 나눠서 봅니다.</p>
+        <div class="hscroll" id="aiStats"></div>
+        <div class="sec-title" style="margin-top:16px">구독 (매달 같은 금액)</div>
+        <div id="aiSubs"></div>
+        <div class="sec-title" style="margin-top:16px">변동 결제 (API 충전 · 토큰 사용료)</div>
+        <div class="chart-box sm"><canvas id="chApi"></canvas></div>
+        <div id="aiApi"></div>
+      </div>
+
+      <div class="card">
+        <h2>또래 평균 비교 · 권고</h2>
+        <p class="desc" id="peerNote">—</p>
+        <div id="peerBody"></div>
+      </div>
+
+      <div class="card">
+        <h2>한도 설정</h2>
+        <p class="desc">매월 1일에 리셋됩니다. 비워두면 경고를 끕니다.</p>
+        <form id="limForm" class="controls">
+          <label class="cap" style="min-width:52px">점심</label>
+          <input class="pill" id="limLunch" type="number" inputmode="numeric" placeholder="260000" style="flex:1;min-width:100px">
+          <label class="cap" style="min-width:52px">커피</label>
+          <input class="pill" id="limCoffee" type="number" inputmode="numeric" placeholder="100000" style="flex:1;min-width:100px">
+          <button class="btn acc sm" type="submit">저장</button>
+        </form>
+      </div>
+
       <div class="card">
         <h2>사용 내역</h2>
         <p class="desc">

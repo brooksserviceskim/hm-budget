@@ -281,3 +281,20 @@ select.catsel{border:1px solid var(--line);border-radius:8px;padding:2px 20px 2p
 .sub-row .amt .c{font-size:11.5px;color:var(--muted);margin-top:2px}
 .tag.new{background:#fee2e2;color:#b91c1c}
 .tag.dup{background:#fef3c7;color:#92400e}
+
+/* ---------- 용돈 경고 ---------- */
+.warn-box{border-radius:16px;padding:15px 17px;margin-bottom:14px;border:1px solid}
+.warn-box.bad{background:#fef2f2;border-color:#fecaca}
+.warn-box.mid{background:#fffbeb;border-color:#fde68a}
+.warn-box.ok{background:#f0fdf4;border-color:#bbf7d0}
+.warn-box .wt{font-size:14.5px;font-weight:800;margin-bottom:6px}
+.warn-box.bad .wt{color:#b91c1c}.warn-box.mid .wt{color:#92400e}.warn-box.ok .wt{color:#15803d}
+.warn-box .wd{font-size:13px;line-height:1.65;color:var(--ink2)}
+.peer{display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line)}
+.peer:last-child{border-bottom:0}
+.peer .pn{font-size:13.5px;font-weight:700;flex:1}
+.peer .pb{flex:1.4;height:9px;border-radius:99px;background:var(--line);position:relative;overflow:hidden}
+.peer .pb i{position:absolute;left:0;top:0;bottom:0;border-radius:99px}
+.peer .pv{font-size:12.5px;font-weight:700;text-align:right;min-width:104px}
+.rec{font-size:13px;line-height:1.7;color:var(--ink2);padding:10px 0 0}
+.rec li{margin-bottom:7px}
