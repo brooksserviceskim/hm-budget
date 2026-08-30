@@ -84,6 +84,16 @@ if ! git ls-remote "$REMOTE" >/dev/null 2>&1; then
 fi
 ok "확인됨 — $GH_USER/$GH_REPO"
 
+# ---------- 3-b. 자가검사 ----------
+if [ -f tools/smoke.js ] && command -v node >/dev/null 2>&1 && [ -d node_modules/jsdom ]; then
+  say "화면 자가검사"
+  if node tools/smoke.js; then ok "전 화면 정상"; else
+    warn "검사에서 문제가 발견됐습니다."
+    read -r -p "  그래도 배포할까요? (y/N) " a
+    [ "$a" = "y" ] || [ "$a" = "Y" ] || die "중단했습니다."
+  fi
+fi
+
 # ---------- 4. 커밋 ----------
 git add -A
 if git diff --cached --quiet 2>/dev/null && git rev-parse HEAD >/dev/null 2>&1; then

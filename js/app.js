@@ -604,6 +604,112 @@
     return { del: kill.length, timed };
   }
 
+  /* ============================================================
+     공용 필터 : 기간(캘린더) · 카테고리 · 결제 통화(국가)
+     ============================================================ */
+  const CUR_INFO = {
+    KRW: ['대한민국', '🇰🇷'], MYR: ['말레이시아', '🇲🇾'], USD: ['미국', '🇺🇸'],
+    JPY: ['일본', '🇯🇵'], EUR: ['유럽', '🇪🇺'], CNY: ['중국', '🇨🇳'],
+    THB: ['태국', '🇹🇭'], VND: ['베트남', '🇻🇳'], SGD: ['싱가포르', '🇸🇬'],
+    HKD: ['홍콩', '🇭🇰'], TWD: ['대만', '🇹🇼'], GBP: ['영국', '🇬🇧'],
+    AUD: ['호주', '🇦🇺'], NZD: ['뉴질랜드', '🇳🇿'], CAD: ['캐나다', '🇨🇦'],
+    CHF: ['스위스', '🇨🇭'], PHP: ['필리핀', '🇵🇭'], IDR: ['인도네시아', '🇮🇩'],
+    AED: ['UAE', '🇦🇪'], MOP: ['마카오', '🇲🇴'], MXN: ['멕시코', '🇲🇽'], TRY: ['튀르키예', '🇹🇷']
+  };
+  const curName = c => { const i = CUR_INFO[c]; return i ? `${i[1]} ${i[0]} (${c})` : c; };
+
+  const FILT = {
+    ledger: { from: '', to: '', cat: '', cur: '' },
+    budget: { from: '', to: '', cat: '', cur: '' },
+    allow:  { from: '', to: '', cat: '', cur: '' }
+  };
+  const filtOn = f => !!(f.from || f.to || f.cat || f.cur);
+  const filtCount = f => ((f.from || f.to) ? 1 : 0) + (f.cat ? 1 : 0) + (f.cur ? 1 : 0);
+
+  function passFilt(t, f) {
+    if (f.from && t.tx_date < f.from) return false;
+    if (f.to   && t.tx_date > f.to)   return false;
+    if (f.cat  && t.category !== f.cat) return false;
+    if (f.cur) {
+      const x = fxOf(t);
+      if (f.cur === 'KRW')     { if (x) return false; }
+      else if (f.cur === 'FX') { if (!x) return false; }
+      else if (!x || x.cur !== f.cur) return false;
+    }
+    return true;
+  }
+
+  /** 슬롯에 필터 UI 를 그린다. pool = 옵션을 뽑아낼 거래 배열 */
+  function drawFilter(slot, key, pool, rerender) {
+    const el = $(slot); if (!el) return;
+    const f = FILT[key];
+    const open = el.querySelector('details')?.open || false;
+
+    const cats = [...new Set((pool || []).filter(t => t.kind === 'expense').map(t => t.category))].filter(Boolean).sort();
+    const curs = [...new Set((pool || []).map(t => (fxOf(t) || {}).cur).filter(Boolean))].sort();
+    const n = filtCount(f);
+
+    el.innerHTML = `<details class="fbar" ${open ? 'open' : ''}>
+      <summary>필터 ${n ? `<span class="fcount">${n}</span>` : ''}</summary>
+      <div class="fbody">
+        <div class="frow"><span class="flab">기간</span>
+          <input type="date" class="pill f-from" value="${f.from}">
+          <span style="color:var(--muted)">~</span>
+          <input type="date" class="pill f-to" value="${f.to}"></div>
+        <div class="fquick">
+          <button data-q="tm">이번달</button><button data-q="lm">지난달</button>
+          <button data-q="30">최근 30일</button><button data-q="90">최근 3개월</button>
+          <button data-q="y">올해</button><button data-q="clr">기간 해제</button>
+        </div>
+        <div class="frow"><span class="flab">분류</span>
+          <select class="pill f-cat">
+            <option value="">전체 분류</option>
+            ${cats.map(c => `<option value="${c}" ${f.cat === c ? 'selected' : ''}>${c}</option>`).join('')}
+          </select></div>
+        <div class="frow"><span class="flab">결제</span>
+          <select class="pill f-cur">
+            <option value="">전체 (원화 + 해외)</option>
+            <option value="KRW" ${f.cur === 'KRW' ? 'selected' : ''}>🇰🇷 국내 원화 결제만</option>
+            <option value="FX"  ${f.cur === 'FX'  ? 'selected' : ''}>✈️ 해외 결제 전체</option>
+            ${curs.length ? `<optgroup label="국가별">${curs.map(c =>
+              `<option value="${c}" ${f.cur === c ? 'selected' : ''}>${curName(c)}</option>`).join('')}</optgroup>` : ''}
+          </select></div>
+        <div class="fquick" style="margin-top:12px">
+          <button data-q="reset" style="border-color:var(--accent);color:var(--accent)">필터 전체 초기화</button>
+        </div>
+      </div></details>`;
+
+    const upd = () => { const d = el.querySelector('details'); if (d) d.open = true; rerender(); };
+    el.querySelector('.f-from').onchange = e => { f.from = e.target.value; upd(); };
+    el.querySelector('.f-to').onchange   = e => { f.to   = e.target.value; upd(); };
+    el.querySelector('.f-cat').onchange  = e => { f.cat  = e.target.value; upd(); };
+    el.querySelector('.f-cur').onchange  = e => { f.cur  = e.target.value; upd(); };
+    el.querySelectorAll('.fquick button').forEach(b => b.onclick = () => {
+      const q = b.dataset.q, now = new Date();
+      const iso = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      if (q === 'tm')      { f.from = iso(new Date(now.getFullYear(), now.getMonth(), 1)); f.to = iso(now); }
+      else if (q === 'lm') { const a = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                             f.from = iso(a); f.to = iso(new Date(now.getFullYear(), now.getMonth(), 0)); }
+      else if (q === '30') { f.from = iso(new Date(Date.now() - 29 * 864e5)); f.to = iso(now); }
+      else if (q === '90') { f.from = iso(new Date(Date.now() - 89 * 864e5)); f.to = iso(now); }
+      else if (q === 'y')  { f.from = `${now.getFullYear()}-01-01`; f.to = iso(now); }
+      else if (q === 'clr'){ f.from = ''; f.to = ''; }
+      else if (q === 'reset') { f.from = f.to = f.cat = f.cur = ''; }
+      upd();
+    });
+  }
+
+  /** 필터 결과 요약 줄 */
+  function filtSummary(f, rows) {
+    if (!filtOn(f)) return '';
+    const sum = rows.reduce((a, t) => a + (t.kind === 'income' ? 0 : t.amount), 0);
+    const bits = [];
+    if (f.from || f.to) bits.push(`${f.from || '처음'} ~ ${f.to || '오늘'}`);
+    if (f.cat) bits.push(f.cat);
+    if (f.cur) bits.push(f.cur === 'KRW' ? '국내 원화' : f.cur === 'FX' ? '해외 전체' : curName(f.cur));
+    return `<div class="fsum">${bits.join(' · ')} — ${rows.length}건 · 합계 ${fmt(sum)}</div>`;
+  }
+
   /* ---------- 아이폰 설치 안내 배너 ---------- */
   function iosInstallHint() {
     const ua = navigator.userAgent;
@@ -675,7 +781,8 @@
     $('#userRole').textContent = u.name;
     $('#userRole').className = 'badge' + (isAdmin() ? '' : ' view');
     $$('[data-admin]').forEach(el => el.classList.toggle('hide', !isAdmin()));
-    await reload();
+    try { await reload(); }
+    catch (e) { console.error('불러오기', e); showLoadError([`불러오기: ${e.message || e}`]); }
     go(view);
   }
 
@@ -692,8 +799,8 @@
     CLAIMS = await S.listClaims().catch(() => []);
     FIXED = await S.listFixed().catch(() => []);
     if (!FIXED.length && isAdmin() && window.__SEED__?.fixed) {
-      await S.insertFixed(window.__SEED__.fixed);
-      FIXED = await S.listFixed();
+      try { await S.insertFixed(window.__SEED__.fixed); FIXED = await S.listFixed(); }
+      catch (e) { console.error('고정비 시드', e); }
     }
     BUDGET = await S.getSetting('budget', { amount: 1000000, startDay: 1 }).catch(() => BUDGET);
     LIMITS = await S.getSetting('allowance_limits', LIMITS).catch(() => LIMITS);
@@ -701,8 +808,8 @@
     EVENTS = await S.listEvents().catch(() => []);
     CP = await S.listCoupang().catch(() => []);
     if (!CP.length && isAdmin() && window.__COUPANG__?.length) {
-      await S.insertCoupang(window.__COUPANG__);
-      CP = await S.listCoupang();
+      try { await S.insertCoupang(window.__COUPANG__); CP = await S.listCoupang(); }
+      catch (e) { console.error('쿠팡 시드', e); }
     }
     // 아래 단계는 하나가 실패해도 화면은 그려져야 한다
     const loadErr = [];
@@ -720,7 +827,7 @@
     });
     RENDER_ERR = [];
     try { renderAll(); } catch (e) { console.error('화면 그리기', e); loadErr.push(`화면 그리기: ${e.message || e}`); }
-    showLoadError(loadErr.concat(RENDER_ERR));
+    try { showLoadError(loadErr.concat(RENDER_ERR)); } catch (e) { console.error('오류 표시', e); }
   }
 
   /** 로딩 중 생긴 문제를 화면 위에 띄운다 (조용히 빈 화면이 되는 것을 막는다) */
@@ -835,7 +942,8 @@
     $('#personBar')?.classList.toggle('hide', v === 'budget' || !['home', 'ledger', 'fixed', 'analysis'].includes(v));
     $('#fab')?.classList.toggle('hide', !['home', 'ledger', 'budget'].includes(v));
     window.scrollTo(0, 0);
-    renderAll();
+    try { renderAll(); } catch (e) { RENDER_ERR.push(`화면 그리기: ${e.message || e}`); }
+    try { showLoadError(RENDER_ERR); } catch (e) { console.error(e); }
   }
 
   $('#mPrev').addEventListener('click', () => { const i = months.indexOf(curMonth); if (i > 0) { curMonth = months[i - 1]; renderAll(); } });
@@ -2617,6 +2725,13 @@
     const ta = $('#bmCode'); ta.value = BOOKMARKLET;
     try { await navigator.clipboard.writeText(BOOKMARKLET); toast('복사되었습니다'); }
     catch (e) { ta.select(); ta.setSelectionRange(0, 999999); document.execCommand('copy'); toast('복사되었습니다'); }
+  });
+
+  window.addEventListener('error', e => {
+    try { showLoadError([`오류: ${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`]); } catch (x) {}
+  });
+  window.addEventListener('unhandledrejection', e => {
+    try { showLoadError([`오류: ${e.reason && (e.reason.message || e.reason)}`]); } catch (x) {}
   });
 
   /* ---------- 유틸 ---------- */
