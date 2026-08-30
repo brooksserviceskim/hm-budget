@@ -501,15 +501,22 @@
     const want = rows.filter(r => r.tx_time && r.fingerprint);
     if (!want.length) return 0;
     const byFp = new Map();
-    for (const t of TX) if (!t.tx_time && t.fingerprint) byFp.set(t.fingerprint, t);
-    let n = 0;
-    for (const r of want) {
-      const t = byFp.get(r.fingerprint);
-      if (!t) continue;
-      try { await S.updateTx(t.id, { tx_time: r.tx_time }); t.tx_time = r.tx_time; n++; }
-      catch (e) { /* 무시 */ }
+    const byKey = new Map();
+    const key = o => `${o.tx_date}|${(o.merchant || '').toUpperCase().replace(/[^A-Z0-9가-힣]/g, '').slice(0, 8)}|${Math.round(+o.amount || 0)}`;
+    for (const t of TX) {
+      if (t.tx_time) continue;
+      if (t.fingerprint) byFp.set(t.fingerprint, t);
+      const k = key(t);
+      if (!byKey.has(k)) byKey.set(k, t);
     }
-    return n;
+    let n = 0, miss = 0, err = '';
+    for (const r of want) {
+      const t = byFp.get(r.fingerprint) || byKey.get(key(r));
+      if (!t) { miss++; continue; }
+      try { await S.updateTx(t.id, { tx_time: r.tx_time }); t.tx_time = r.tx_time; n++; }
+      catch (e) { if (!err) err = e.message || String(e); }
+    }
+    return { n, miss, err, want: want.length };
   }
 
   /* ============================================================
@@ -2242,8 +2249,18 @@
 
     await reload();
     draw('결제 시각 확인 중...');
-    const filled = await backfillTime(seen);
-    if (filled) lines.push(`🕒 이미 저장돼 있던 ${filled}건에 결제 시각을 채웠습니다`);
+    const bf = await backfillTime(seen);
+    if (bf.err) {
+      lines.push(`⚠️ 결제 시각 저장 실패 — ${bf.err}`);
+      lines.push(`   (Supabase 에서 migration-time.sql 을 실행했는지 확인해 주세요)`);
+    } else if (bf.n) {
+      lines.push(`🕒 이미 저장돼 있던 ${bf.n}건에 결제 시각을 채웠습니다`);
+    } else if (bf.want) {
+      const hasTime = TX.filter(t => t.tx_time).length;
+      lines.push(`🕒 시각을 채울 대상이 없습니다 — 파일 ${bf.want}건 중 기존 데이터와 짝이 맞은 건 0건`);
+      lines.push(`   현재 DB에 시각이 있는 거래: ${hasTime}건`);
+      if (bf.miss) lines.push(`   지문이 달라 못 찾음: ${bf.miss}건 (예전 버전으로 올린 데이터일 수 있습니다)`);
+    }
     const dup = await dedupeSmsVsCard();
     if (dup) { lines.push(`↻ 중복 ${dup}건을 정리했습니다`); draw(); }
     draw('외화 결제 환율 계산 중...');
