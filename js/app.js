@@ -679,7 +679,12 @@
   }
 
   async function reload() {
-    TX = await S.listTx();
+    try { TX = await S.listTx(); }
+    catch (e) {
+      console.error('거래 불러오기', e);
+      renderAll(); showLoadError([`거래 내역을 불러오지 못했습니다 — ${e.message || e}`]);
+      return;
+    }
     if (!TX.length && isAdmin() && !seeding && window.__SEED__) {
       seeding = true; await loadSeed(null); seeding = false; return;
     }
@@ -698,18 +703,42 @@
       await S.insertCoupang(window.__COUPANG__);
       CP = await S.listCoupang();
     }
-    await consumePending();
-    await migrate();
-    await resolveFx();
+    // 아래 단계는 하나가 실패해도 화면은 그려져야 한다
+    const loadErr = [];
+    const step = async (name, fn) => {
+      try { await fn(); }
+      catch (e) { console.error(name, e); loadErr.push(`${name}: ${e.message || e}`); }
+    };
+    await step('쿠팡 가져오기', consumePending);
+    await step('데이터 정리', migrate);
+    await step('환율 환산', resolveFx);
+
     months = A.effectiveMonths(TX);
     if (!curMonth || !months.includes(curMonth)) curMonth = months[months.length - 1] || null;
     renderAll();
+    showLoadError(loadErr);
+  }
+
+  /** 로딩 중 생긴 문제를 화면 위에 띄운다 (조용히 빈 화면이 되는 것을 막는다) */
+  function showLoadError(errs) {
+    let box = $('#loadErrBox');
+    if (!errs || !errs.length) { if (box) box.remove(); return; }
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'loadErrBox';
+      box.className = 'warn-box mid';
+      box.style.cssText = 'margin:12px 16px';
+      document.querySelector('main')?.prepend(box);
+    }
+    box.innerHTML = `<div class="wt">일부 기능에서 문제가 있었습니다</div>
+      <div class="wd">${errs.map(esc).join('<br>')}<br>
+      화면의 나머지는 정상입니다. 이 메시지를 알려주시면 고쳐드립니다.</div>`;
   }
 
   /* ---------- 데이터 정리 마이그레이션 ---------- */
   async function migrate() {
     if (!isAdmin()) return;
-    let n = 0;
+    let n = 0, migErr = null;
     const L = P.BANK_LABEL || {};
     for (const t of TX) {
       const patch = {};
@@ -731,9 +760,13 @@
         const nm = C.normalizeMerchant(patch.merchant || t.merchant);
         if (nm !== (patch.merchant || t.merchant)) patch.merchant = nm;
       }
-      if (Object.keys(patch).length) { await S.updateTx(t.id, patch); Object.assign(t, patch); n++; }
+      if (Object.keys(patch).length) {
+        try { await S.updateTx(t.id, patch); Object.assign(t, patch); n++; }
+        catch (e) { if (!migErr) { migErr = e; console.error('정리 실패', t.id, patch, e); } }
+      }
     }
     if (n) toast(`데이터 ${n}건 정리 완료`);
+    if (migErr) throw new Error(`데이터 정리 중 ${migErr.message || migErr}`);
   }
 
   /* ---------- 북마클릿으로 넘어온 쿠팡 주문 받기 ---------- */
