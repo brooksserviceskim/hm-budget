@@ -126,7 +126,19 @@
 
     /* ---- 점심 · 커피 ---- */
     const lunchTx = cur.filter(isLunch), coffTx = cur.filter(isCoffee);
+    const eatTx = cur.filter(t => t.category === '음식·숙박' && !isCoffee(t) && t.subcategory !== '배달');
+    const noTimeNow = eatTx.length && !eatTx.some(t => t.tx_time);
     const L = gauge('lunch', lunchTx.reduce((a, t) => a + t.amount, 0), +LIMITS.lunch || 0, '점심', lunchTx.length);
+    if (noTimeNow) {
+      $('#lunchLeft').textContent = '시각 정보 없음';
+      $('#lunchLeft').style.color = 'var(--muted)';
+      $('#lunchSub').innerHTML = `이번 달 식당 결제 ${eatTx.length}건에 <b>결제 시각</b>이 없습니다`;
+      $('#lunchBar').style.width = '0%';
+      $('#lunchUsed').textContent = `식당 결제 ${fmt(eatTx.reduce((a, t) => a + t.amount, 0))} · ${eatTx.length}건`;
+      $('#lunchMsg').innerHTML = '삼성카드 · KB국민카드 홈페이지에서 <b>이용내역</b>(승인시각 포함)을 받아 ' +
+        '<b>더보기 → 명세서 업로드</b>에 올리면 점심 시간대만 골라서 계산합니다. ' +
+        '이미 올린 파일이어도 다시 올리시면 시각만 채워집니다.';
+    }
     const K = gauge('coff', coffTx.reduce((a, t) => a + t.amount, 0), +LIMITS.coffee || 0, '커피', coffTx.length);
 
     /* ---- 월별 그래프 ---- */
