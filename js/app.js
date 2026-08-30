@@ -2139,25 +2139,62 @@
   });
 
   /* ---------- 업무비용 ---------- */
+  /* 기안에 반영된 거래는 메모에 [기안:YYYY-MM] 이 붙는다 */
+  const claimTag = t => (/\[기안:(\d{4}-\d{2})\]/.exec(t.memo || '') || [])[1] || '';
+  const workPending = () => VTX.filter(t => t.is_work && !claimTag(t));
+
   function renderWork() {
     const tagged = VTX.filter(t => t.is_work).reduce((a, t) => a + t.amount, 0);
+    const pend = workPending();
+    const pendSum = pend.reduce((a, t) => a + t.amount, 0);
     const paid = CLAIMS.filter(c => c.status === '환급완료').reduce((a, c) => a + (+c.amount || 0), 0);
     const open = CLAIMS.filter(c => c.status !== '환급완료').reduce((a, c) => a + (+c.amount || 0), 0);
     const st = (n, v, d, color) => `<div class="stat"><div class="n"><i style="background:${color}"></i>${n}</div>
       <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
     $('#wkStats').innerHTML = st('업무 태그 합계', fmt(tagged), '가계 지출에서 제외', 'var(--warn)') +
+      st('기안 미반영', fmt(pendSum), pend.length ? `${pend.length}건 · 아래에서 기안 생성` : '모두 반영됨',
+         pendSum ? 'var(--expense)' : 'var(--income)') +
       st('환급 완료', fmt(paid), `${CLAIMS.filter(c => c.status === '환급완료').length}건`, 'var(--income)') +
-      st('미환급 잔액', fmt(open), '기안 누락 확인', 'var(--expense)');
+      st('미환급 잔액', fmt(open), '입금 확인 필요', open ? 'var(--warn)' : 'var(--muted)');
 
     const ed = canWrite();
+
+    /* ---- 업무로 표시했지만 아직 기안에 안 들어간 건 ---- */
+    const pw = $('#wkPending');
+    if (ed && pend.length) {
+      const ms = [...new Set(pend.map(t => t.tx_date.slice(0, 7)))].sort();
+      const mLabel = ms.length > 1
+        ? `${+ms[0].slice(5)}~${+ms[ms.length - 1].slice(5)}월`
+        : `${+ms[0].slice(5)}월`;
+      const names = [...new Set(pend.map(t => t.merchant))];
+      const autoMemo = `${names.length === 1 ? names[0] : names[0] + ' 외'} ${mLabel} ${pend.length}건`;
+      pw.className = 'pend'; pw.classList.remove('hide');
+      pw.innerHTML = `
+        <div class="ph">업무로 표시한 ${pend.length}건 · ${fmt(pendSum)} 이 기안에 안 들어가 있습니다</div>
+        <div class="pd">${pend.slice(0, 6).map(t => `${t.tx_date} ${esc(t.merchant)} ${fmt(t.amount)}`).join('<br>')}
+          ${pend.length > 6 ? `<br>… 외 ${pend.length - 6}건` : ''}</div>
+        <div class="pf">
+          <input type="month" id="pdPeriod" value="${todayYM()}" title="귀속월">
+          <input type="number" id="pdAmt" class="num-in" value="${Math.round(pendSum)}">
+          <select id="pdStatus">
+            <option>기안완료</option><option>미기안</option><option>환급완료</option>
+          </select>
+          <input type="date" id="pdFiled" value="${new Date().toISOString().slice(0, 10)}" title="기안일">
+          <input type="text" id="pdMemo" value="${esc(autoMemo)}" style="flex:1;min-width:130px">
+          <button class="btn acc sm" id="pdMake">기안으로 등록</button>
+        </div>`;
+    } else {
+      pw.className = 'hide'; pw.innerHTML = '';
+    }
     $('#tblClaim tbody').innerHTML = [...CLAIMS].sort((a, b) => a.period < b.period ? 1 : -1).map(c => `
       <tr data-period="${c.period}"><td><b>${c.period}</b></td>
       <td class="num">${ed ? `<input class="pill js-c-amt" type="number" value="${+c.amount || 0}" style="width:110px;text-align:right;padding:5px 8px;font-size:12.5px;border-radius:9px">` : fmt(+c.amount || 0)}</td>
       <td>${ed ? `<select class="pill js-c-status" style="padding:5px 22px 5px 8px;font-size:12.5px;border-radius:9px">${['미기안', '기안완료', '환급완료'].map(o => `<option ${o === c.status ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<span class="tag ${c.status === '환급완료' ? 'g' : 'w'}">${c.status}</span>`}</td>
+      <td>${ed ? `<input class="pill js-c-filed" type="date" value="${c.filed_date || ''}" style="padding:5px 8px;font-size:12.5px;border-radius:9px">` : (c.filed_date || '—')}</td>
       <td>${ed ? `<input class="pill js-c-paid" type="date" value="${c.paid_date || ''}" style="padding:5px 8px;font-size:12.5px;border-radius:9px">` : (c.paid_date || '—')}</td>
       <td>${ed ? `<input class="pill js-c-memo" type="text" value="${esc(c.memo || '')}" style="padding:5px 8px;font-size:12.5px;border-radius:9px;width:130px">` : esc(c.memo || '')}</td>
       <td>${ed ? '<button class="btn ghost sm js-c-del">삭제</button>' : ''}</td></tr>`).join('')
-      || '<tr><td colspan="6" style="color:var(--muted)">등록된 기안이 없습니다.</td></tr>';
+      || '<tr><td colspan="7" style="color:var(--muted)">등록된 기안이 없습니다.</td></tr>';
 
     const cand = VTX.filter(t => t.kind === 'expense' &&
       (t.is_work || /Google \(제미나이|네이버파이낸셜|microsoft|오피스/i.test(t.merchant)))
@@ -2165,13 +2202,46 @@
     $('#tblWorkCand tbody').innerHTML = cand.map(t => `
       <tr data-id="${t.id}"><td>${t.tx_date}</td><td>${esc(t.merchant)}</td>
       <td class="num">${fmt(t.amount)}</td>
-      <td>${ed ? `<input type="checkbox" class="js-work2" ${t.is_work ? 'checked' : ''}>` : (t.is_work ? '업무' : '')}</td></tr>`).join('')
+      <td>${ed ? `<input type="checkbox" class="js-work2" ${t.is_work ? 'checked' : ''}>` : (t.is_work ? '업무' : '')}
+        ${claimTag(t) ? `<div class="claimed">${claimTag(t)} 기안</div>` : ''}</td></tr>`).join('')
       || '<tr><td colspan="4" style="color:var(--muted)">후보가 없습니다.</td></tr>';
   }
+
+  /* 미반영 건을 기안으로 등록 */
+  document.addEventListener('click', async e => {
+    if (e.target.id !== 'pdMake') return;
+    e.preventDefault();
+    const period = $('#pdPeriod').value, amount = +$('#pdAmt').value || 0;
+    if (!period) { toast('귀속월을 골라주세요'); return; }
+    const rows = workPending();
+    if (!rows.length) return;
+    const exist = CLAIMS.find(c => c.period === period);
+    if (exist && !confirm(`${period} 기안이 이미 있습니다 (${fmt(+exist.amount || 0)}).\n금액을 ${fmt(amount)} 로 바꾸고 이 건들을 묶을까요?`)) return;
+    const btn = e.target; btn.disabled = true; btn.textContent = '등록 중...';
+    try {
+      await S.upsertClaim({
+        period, amount,
+        status: $('#pdStatus').value,
+        filed_date: $('#pdFiled').value || null,
+        paid_date: $('#pdStatus').value === '환급완료' ? new Date().toISOString().slice(0, 10) : (exist?.paid_date || null),
+        memo: $('#pdMemo').value || ''
+      });
+      for (const t of rows) {
+        const memo = ((t.memo || '') + ` [기안:${period}]`).trim();
+        await S.updateTx(t.id, { memo }); t.memo = memo;
+      }
+      CLAIMS = await S.listClaims();
+      applyPerson(); renderWork();
+      toast(`${period} 기안 등록 · ${rows.length}건 연결`);
+    } catch (err) {
+      toast('실패: ' + err.message); btn.disabled = false; btn.textContent = '기안으로 등록';
+    }
+  });
   $('#tblClaim').addEventListener('change', async e => {
     const tr = e.target.closest('tr'); if (!tr?.dataset.period) return;
     const row = { period: tr.dataset.period, amount: +tr.querySelector('.js-c-amt').value || 0,
       status: tr.querySelector('.js-c-status').value,
+      filed_date: tr.querySelector('.js-c-filed').value || null,
       paid_date: tr.querySelector('.js-c-paid').value || null,
       memo: tr.querySelector('.js-c-memo').value || '' };
     if (row.status === '환급완료' && !row.paid_date) {
