@@ -783,6 +783,14 @@
           <button data-v="ledger">가계부</button>
         </div>
       </div>
+      <div class="card">
+        <h2>해외 결제 환율</h2>
+        <p class="desc">해외 결제는 <b>결제일 기준 환율</b>로 원화 환산합니다.
+          결제 당일에는 아직 환율이 고시되기 전이라 직전 영업일 값으로 임시 계산되고,
+          다음날 자동으로 확정 환율로 다시 계산됩니다.</p>
+        <button class="btn ghost block" id="fxRecalc" style="margin-top:4px">환율 지금 다시 계산</button>
+        <div class="desc" id="fxRecalcMsg" style="margin:10px 0 0"></div>
+      </div>
     </section>
 
     <!-- ---------- 정보 ---------- -->

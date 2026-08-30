@@ -195,24 +195,32 @@
   }
 
   /** 원화가 비었거나 잠정 환율로 채워진 외화 결제를 다시 계산한다 */
-  async function resolveFx() {
-    if (!canWrite()) return;
+  /** 한 건을 환산해 저장. 성공하면 true */
+  async function resolveOne(t) {
+    const f = fxOf(t); if (!f) return false;
+    const conv = await toKrw(f.cur, f.amt, t.tx_date);
+    if (!conv) return false;
+    const tag = `@${conv.rate.toFixed(2)}${conv.provisional ? '?' : ''}`;
+    if (+t.amount === conv.krw && (t.memo || '').includes(tag)) return false;
+    const memo = (t.memo || '').replace(/\s*@[0-9.]+\??/, '') + ' ' + tag;
+    await S.updateTx(t.id, { amount: conv.krw, raw_amount: conv.krw, memo });
+    t.amount = conv.krw; t.raw_amount = conv.krw; t.memo = memo;
+    return true;
+  }
+
+  /** 원화가 비었거나 잠정 환율로 채워진 외화 결제를 다시 계산 */
+  async function resolveFx(silent) {
+    if (!canWrite()) return 0;
     const todo = TX.filter(t => t.kind === 'expense' && fxOf(t) &&
                                 (+t.amount === 0 || fxProvisional(t)));
-    if (!todo.length) return;
+    if (!todo.length) return 0;
+    // 통화·날짜별 환율을 먼저 한 번에 받아두면 이후 저장이 빠르다
+    const keys = [...new Set(todo.map(t => `${fxOf(t).cur}|${t.tx_date}`))];
+    await Promise.all(keys.map(k => { const [c, d] = k.split('|'); return fxRate(c, d); }));
     let done = 0;
-    for (const t of todo) {
-      const f = fxOf(t);
-      const conv = await toKrw(f.cur, f.amt, t.tx_date);
-      if (!conv) continue;
-      const tag = `@${conv.rate.toFixed(2)}${conv.provisional ? '?' : ''}`;
-      const memo = (t.memo || '').replace(/\s*@[0-9.]+\??/, '') + ' ' + tag;
-      if (+t.amount === conv.krw && (t.memo || '').includes(tag)) continue;
-      await S.updateTx(t.id, { amount: conv.krw, raw_amount: conv.krw, memo });
-      t.amount = conv.krw; t.raw_amount = conv.krw; t.memo = memo;
-      done++;
-    }
-    if (done) toast(`외화 결제 ${done}건을 원화로 환산했습니다`);
+    for (const t of todo) { if (await resolveOne(t)) done++; }
+    if (done && !silent) toast(`외화 ${done}건을 원화로 환산했습니다`);
+    return done;
   }
 
   /** 목록에 붙일 외화 표기 */
@@ -220,7 +228,10 @@
     const f = fxOf(t);
     if (!f) return '';
     const nf = new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2 });
-    const wait = +t.amount === 0 ? ' <span class="tag w">환율 대기</span>' : '';
+    const rate = (/@([0-9.]+)/.exec(t.memo || '') || [])[1];
+    const wait = +t.amount === 0
+      ? ` <button class="tag w fx-go" data-fxid="${t.id}" title="눌러서 지금 환율로 계산">환율 대기 ↻</button>`
+      : (rate ? ` <span class="tag" title="적용 환율">1${f.cur} = ${(+rate).toLocaleString()}원</span>` : '');
     return ` <span class="tag fx">${f.cur} ${nf.format(f.amt)}</span>${wait}`;
   }
 
@@ -814,6 +825,33 @@
     const on = isBudgetTx(t);
     return `<button class="bchip ${on ? 'on' : ''}" data-bid="${t.id}" title="생활비 예산 포함 여부">${on ? '생활비 ✓' : '생활비 제외'}</button>`;
   }
+
+  $('#fxRecalc')?.addEventListener('click', async () => {
+    const b = $('#fxRecalc'), m = $('#fxRecalcMsg');
+    b.disabled = true; b.textContent = '계산 중...'; m.textContent = '';
+    try {
+      // 저장된 환율 캐시를 비우고 전부 다시 받아온다
+      Object.keys(localStorage).filter(k => k.startsWith('fx_')).forEach(k => localStorage.removeItem(k));
+      const n = await resolveFx(true);
+      const left = TX.filter(t => fxOf(t) && +t.amount === 0).length;
+      m.innerHTML = n ? `${n}건을 다시 계산했습니다.` + (left ? ` (${left}건은 환율을 못 받았습니다)` : '')
+                      : (left ? `${left}건의 환율을 가져오지 못했습니다. 잠시 뒤 다시 시도해 주세요.`
+                              : '모두 최신 환율로 되어 있습니다.');
+      applyPerson(); renderAll();
+    } catch (e) { m.textContent = '오류: ' + e.message; }
+    b.disabled = false; b.textContent = '환율 지금 다시 계산';
+  });
+
+  // '환율 대기' 클릭 → 그 건만 즉시 환산
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('.fx-go'); if (!b) return;
+    e.stopPropagation();
+    const t = TX.find(x => x.id === +b.dataset.fxid); if (!t) return;
+    b.textContent = '계산 중...';
+    const ok = await resolveOne(t);
+    if (ok) { applyPerson(); renderAll(); toast('환율을 적용했습니다'); }
+    else { b.textContent = '환율 대기 ↻'; toast('환율을 가져오지 못했습니다'); }
+  });
 
   // 칩 클릭 → 생활비 포함/제외 전환
   document.addEventListener('click', async e => {
@@ -1923,7 +1961,12 @@
 
     await reload();
     const dup = await dedupeSmsVsCard();
-    if (dup) { lines.push(`↻ 문자로 먼저 들어와 있던 ${dup}건은 명세서 기준으로 정리했습니다`); draw(); applyPerson(); renderAll(); }
+    if (dup) { lines.push(`↻ 중복 ${dup}건을 정리했습니다`); draw(); }
+    draw('외화 결제 환율 계산 중...');
+    const fxn = await resolveFx(true);
+    if (fxn) lines.push(`💱 해외 결제 ${fxn}건을 오늘 기준 환율로 원화 환산했습니다`);
+    draw();
+    if (dup || fxn) { applyPerson(); renderAll(); }
     toast(failCount ? `업로드 완료 (실패 ${failCount}건)` : '업로드 완료');
     if (!failCount) setTimeout(() => { log.classList.add('hide'); log.textContent = ''; }, 6000);
   }
