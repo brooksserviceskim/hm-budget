@@ -457,6 +457,12 @@
     const f = fxOf(t); if (!f) return false;
     const conv = await toKrw(f.cur, f.amt, t.tx_date);
     if (!conv) return false;
+    if (conv.rate == null) {                      // 원화 결제 → 환산 없이 금액만
+      if (+t.amount === conv.krw) return false;
+      await S.updateTx(t.id, { amount: conv.krw, raw_amount: conv.krw });
+      t.amount = conv.krw; t.raw_amount = conv.krw;
+      return true;
+    }
     const tag = `@${conv.rate.toFixed(2)}${conv.provisional ? '?' : ''}`;
     if (+t.amount === conv.krw && (t.memo || '').includes(tag)) return false;
     const memo = (t.memo || '').replace(/\s*@[0-9.]+\??/, '') + ' ' + tag;
@@ -557,7 +563,7 @@
    * 같은 결제가 '이용내역'(카드사 조회 파일) 과 '명세서' 양쪽으로 들어온 경우.
    * 명세서가 최종 청구 기준이므로 이용내역 쪽을 지운다.
    */
-  async function dedupeUsageVsStatement() {
+  async function dedupeUsageVsStatement(onStep) {
     if (!canWrite()) return { del: 0, timed: 0 };
     const isUsage = t => /이용내역/.test(t.memo || '');
     const cards = TX.filter(t => t.kind === 'expense' && CARD_SRC.has(t.source));
@@ -565,7 +571,7 @@
     const stmt  = cards.filter(t => !isUsage(t));
     if (!usage.length || !stmt.length) return { del: 0, timed: 0 };
 
-    const used = new Set(); const kill = []; let timed = 0;
+    const used = new Set(); const kill = []; const moves = []; let timed = 0;
     for (const u of usage) {
       const fx = fxOf(u);
       const hit = stmt.find(c => {
@@ -578,12 +584,21 @@
       });
       if (!hit) continue;
       used.add(hit.id); kill.push(u);
-      if (u.tx_time && !hit.tx_time) {             // 시각은 명세서 쪽으로 옮겨두고 지운다
-        try { await S.updateTx(hit.id, { tx_time: u.tx_time }); hit.tx_time = u.tx_time; timed++; }
-        catch (e) { /* 무시 */ }
-      }
+      if (u.tx_time && !hit.tx_time) moves.push([hit, u.tx_time]);
     }
-    for (const u of kill) { await S.deleteTx(u.id); }
+    // 시각 이전 — 8건씩 동시에
+    for (let i = 0; i < moves.length; i += 8) {
+      await Promise.all(moves.slice(i, i + 8).map(async ([c, tm]) => {
+        try { await S.updateTx(c.id, { tx_time: tm }); c.tx_time = tm; timed++; } catch (e) { /* 무시 */ }
+      }));
+      if (onStep) onStep(`결제 시각 옮기는 중... ${Math.min(i + 8, moves.length)}/${moves.length}`);
+    }
+    // 삭제 — 200건씩 묶어서
+    const ids = kill.map(u => u.id);
+    for (let i = 0; i < ids.length; i += 200) {
+      await S.deleteTxMany(ids.slice(i, i + 200));
+      if (onStep) onStep(`중복 지우는 중... ${Math.min(i + 200, ids.length)}/${ids.length}`);
+    }
     if (kill.length) TX = TX.filter(t => !kill.includes(t));
     return { del: kill.length, timed };
   }
@@ -698,6 +713,13 @@
     const L = P.BANK_LABEL || {};
     for (const t of TX) {
       const patch = {};
+      const kf = fxOf(t);
+      if (kf && kf.cur === 'KRW') {               // 원화 결제인데 환산 대기로 잘못 들어간 건
+        patch.amount = Math.round(kf.amt);
+        patch.raw_amount = Math.round(kf.amt);
+        patch.memo = (t.memo || '').replace(/\s*FX:KRW:[0-9.]+/, '').replace(/\s*@[0-9.]+\??/, '').trim()
+                     || '삼성카드 해외 이용내역 (원화 결제)';
+      }
       if (t.source === 'sms' && t.category === '미분류') {
         const g = C.categorize(t.merchant);
         if (g.matched) { patch.category = g.category; patch.subcategory = g.sub; }
@@ -1039,7 +1061,7 @@
     b.disabled = true; b.textContent = '정리 중...'; m.textContent = '';
     try {
       const before = TX.length;
-      const r = await dedupeUsageVsStatement();
+      const r = await dedupeUsageVsStatement(msg => { b.textContent = msg; });
       await reload();
       m.innerHTML = r.del
         ? `중복 <b>${r.del}건</b>을 지웠습니다 (${before}건 → ${TX.length}건).` +

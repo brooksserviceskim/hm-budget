@@ -97,6 +97,13 @@
     if (error) throw error;
   }
 
+  async function deleteTxMany(ids) {
+    if (!ids || !ids.length) return;
+    if (!ONLINE) { const set = new Set(ids); lsSet(LS_TX, lsGet(LS_TX, []).filter(r => !set.has(r.id))); return; }
+    const { error } = await sb.from('transactions').delete().in('id', ids);
+    if (error) throw error;
+  }
+
   async function deleteTx(id) {
     if (!ONLINE) { lsSet(LS_TX, lsGet(LS_TX, []).filter(r => r.id !== id)); return; }
     const { error } = await sb.from('transactions').delete().eq('id', id);
@@ -249,7 +256,7 @@
     if (error) throw error;
   }
 
-  root.Store = { ONLINE, getSetting, setSetting, listEvents, insertEvent, updateEvent, deleteEvent, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx,
+  root.Store = { ONLINE, getSetting, setSetting, listEvents, insertEvent, updateEvent, deleteEvent, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx, deleteTxMany,
                  listClaims, upsertClaim, deleteClaim,
                  listFixed, insertFixed, updateFixed, deleteFixed,
                  listCoupang, insertCoupang, updateCoupang };

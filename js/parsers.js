@@ -434,6 +434,15 @@
           const fxAmt = num(r[cAmt]);
           if (!cur || !fxAmt) continue;
           const usd = num(r[cUsd]);
+          if (cur === 'KRW') {                   // 현지통화가 원화면 환산할 게 없다 (Zoom · Meta 광고 등)
+            out.push(rowFrom({
+              source: 'samsung_card', tx_date: d, tx_time: hhmm(r[cTm]), merchant,
+              amount: fxAmt, raw_amount: fxAmt,
+              memo: '삼성카드 해외 이용내역 (원화 결제)',
+              fingerprint: fp(['sscu-fx', d, merchant, 'KRW', Math.round(fxAmt)])
+            }));
+            continue;
+          }
           out.push(rowFrom({
             source: 'samsung_card', tx_date: d, tx_time: hhmm(r[cTm]), merchant,
             amount: 0, raw_amount: 0,            // 원화는 앱이 결제일 환율로 채운다
