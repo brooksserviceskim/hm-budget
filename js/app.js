@@ -146,7 +146,7 @@
                        cpimport: '쿠팡 가져오기', expense: '지출 입력', budget: '생활비', add: '입력',
                        prefs: '환경 설정', allowance: '김현우 용돈 사용 내역',
                        more: '더보기', upload: '명세서 업로드', income: '수입 입력',
-                       work: '업무비용 환급', info: '데이터 정보' };
+                       work: '업무비용 환급', info: '데이터 정보', subs: '정기결제 · 구독' };
   const MONTH_VIEWS = new Set(['home', 'ledger']);
 
   /* ============================================================
@@ -643,6 +643,7 @@
     if (view === 'income') renderIncome();
     if (view === 'expense') renderExpense();
     if (view === 'work') renderWork();
+    if (view === 'subs') renderSubs();
     if (view === 'info') renderInfo();
   }
 
@@ -2137,6 +2138,63 @@
     if (!confirm('삭제할까요?')) return;
     await S.deleteTx(id); TX = TX.filter(t => t.id !== id); applyPerson(); renderExpense(); toast('삭제됨');
   });
+
+  /* ============================================================
+     정기결제 · 구독
+     ============================================================ */
+  function renderSubs() {
+    const today = new Date().toISOString().slice(0, 10);
+    const pool = VTX.filter(t => t.kind === 'expense' && A.isHouseholdExpense(t) && +t.amount > 0);
+    const all = A.detectSubs(pool, today);
+    const live = all.filter(s => s.active);
+    const dead = all.filter(s => !s.active);
+
+    const perMonth = live.reduce((a, s) =>
+      a + (s.cycle === 'year' ? s.amount / 12 : s.cycle === 'half' ? s.amount * 2 : s.amount), 0);
+    const yearAgo = new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10);
+    const fresh = live.filter(s => s.first >= yearAgo);
+
+    const st = (n, v, d, c) => `<div class="stat"><div class="n"><i style="background:${c}"></i>${n}</div>
+      <div class="v num">${v}</div><div class="d flat">${d}</div></div>`;
+    $('#subStats').innerHTML =
+      st('매월 나가는 구독료', fmt(perMonth), `${live.length}건`, 'var(--accent)') +
+      st('연간 환산', fmt(perMonth * 12), '지금 이대로라면', 'var(--purple)') +
+      st('최근 6개월 새 구독', fmt(fresh.reduce((a, s) => a + s.amount, 0)),
+         fresh.length ? `${fresh.length}건 · 확인 필요` : '없음',
+         fresh.length ? 'var(--expense)' : 'var(--income)') +
+      st('끝난 구독', `${dead.length}건`, '해지 확인됨', 'var(--muted)');
+
+    // 같은 가맹점·같은 금액이 여러 건이면 중복 구독 의심
+    const dupKey = new Map();
+    for (const s of live) {
+      const k = `${s.merchant}|${s.amount}`;
+      dupKey.set(k, (dupKey.get(k) || 0) + 1);
+    }
+
+    const card = (s, isDead) => {
+      const k = `${s.merchant}|${s.amount}`;
+      const cyc = s.cycle === 'year' ? '매년' : s.cycle === 'half' ? '격주' : '매월';
+      const dup = !isDead && dupKey.get(k) > 1;
+      const isNew = !isDead && s.first >= yearAgo;
+      return `<div class="sub-row">
+        <div class="ic">${C.iconOf(s.category, s.sub)}</div>
+        <div class="b">
+          <div class="t1">${esc(s.merchant)}
+            ${isNew ? '<span class="tag new">최근 시작</span>' : ''}
+            ${dup ? `<span class="tag dup">같은 금액 ${dupKey.get(k)}건</span>` : ''}</div>
+          <div class="t2">${cyc} ${s.day}일 · ${s.count}회 결제 ·
+            ${s.first} 시작${isDead ? ` · 마지막 ${s.last} (${s.sinceDays}일 전)` : ''}</div>
+        </div>
+        <div class="amt"><div class="v num">${fmt(s.amount)}</div>
+          <div class="c">누적 ${fmt(s.total)}</div></div>
+      </div>`;
+    };
+
+    $('#subList').innerHTML = live.map(s => card(s, false)).join('')
+      || '<p class="desc" style="margin:0;padding:10px 0">정기결제로 볼 만한 건이 없습니다.</p>';
+    $('#subDead').innerHTML = dead.slice(0, 40).map(s => card(s, true)).join('')
+      || '<p class="desc" style="margin:0;padding:10px 0">없습니다.</p>';
+  }
 
   /* ---------- 업무비용 ---------- */
   /* 기안에 반영된 거래는 메모에 [기안:YYYY-MM] 이 붙는다 */

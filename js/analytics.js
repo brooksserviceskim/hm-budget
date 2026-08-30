@@ -512,10 +512,108 @@
 
   Object.defineProperty(root, '__setSpouse', { value: v => { SPOUSE_RECORDED = v || new Set(); } });
 
+
+  /* ============================================================
+     정기결제(구독) 자동 탐지
+     같은 가맹점·같은 금액을 '한 달 간격 사슬'로 묶어 구독을 분리한다.
+     ============================================================ */
+  /* 정기결제 자동 탐지 — 가맹점+금액 묶음 안에서 '한 달 간격 사슬'을 만든다 */
+  const DAY = 86400000;
+  const dnum = s => new Date(s + 'T00:00:00Z').getTime();
+  const day = t => +t.tx_date.slice(8, 10);
+  function modeDay(rows) {                       // 가장 자주 나온 결제일
+    const c = new Map();
+    for (const r of rows) c.set(day(r), (c.get(day(r)) || 0) + 1);
+    return [...c.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+  }
+  function detectSubs(tx, today) {
+    const now = dnum(today);
+    const g = new Map();
+    for (const t of tx) {
+      const k = `${t.merchant}|${Math.round(t.amount)}`;
+      if (!g.has(k)) g.set(k, []);
+      g.get(k).push(t);
+    }
+    const out = [];
+    for (const [k, list] of g) {
+      if (list.length < 2) continue;
+      list.sort((a, b) => a.tx_date < b.tx_date ? -1 : 1);
+      const chains = [];
+      for (const t of list) {
+        const d = dnum(t.tx_date);
+        let best = null, bestScore = 1e9, cyc = null;
+        for (const c of chains) {
+          const gap = (d - dnum(c.rows[c.rows.length - 1].tx_date)) / DAY;
+          let period = null;
+          if (gap >= 26 && gap <= 36) period = 'month';
+          else if (gap >= 350 && gap <= 380) period = 'year';
+          else if (gap >= 12 && gap <= 17) period = 'half';
+          if (!period) continue;
+          const ideal = period === 'month' ? 30.4 : period === 'year' ? 365 : 14;
+          // 결제일(며칠)이 같은 사슬을 우선, 간격은 보조 기준
+          const dd = Math.abs(day(t) - c.day);
+          const score = Math.min(dd, 31 - dd) + Math.abs(gap - ideal) / 20;
+          if (score < bestScore) { best = c; bestScore = score; cyc = period; }
+        }
+        if (best) { best.rows.push(t); best.cycle = cyc; best.day = modeDay(best.rows); }
+        else chains.push({ rows: [t], cycle: null, day: day(t) });
+      }
+      // --- 보정 : 결제일이 비슷한 사슬끼리 섞인 것을 월 단위로 다시 배정 ---
+      if (chains.length > 1) {
+        for (let it = 0; it < 3; it++) {
+          chains.forEach(c => { c.day = modeDay(c.rows); });
+          const byMonth = new Map();
+          for (const c of chains) for (const r of c.rows) {
+            const m = r.tx_date.slice(0, 7);
+            if (!byMonth.has(m)) byMonth.set(m, []);
+            byMonth.get(m).push(r);
+          }
+          chains.forEach(c => { c.rows = []; });
+          for (const m of [...byMonth.keys()].sort()) {
+            const rows = byMonth.get(m).sort((a, b) => day(a) - day(b));
+            const free = chains.slice();
+            for (const r of rows) {
+              let pick = null, bestD = 1e9;
+              for (const c of free) {
+                const dd = Math.abs(day(r) - c.day);
+                const v = Math.min(dd, 31 - dd);
+                if (v < bestD) { bestD = v; pick = c; }
+              }
+              if (!pick) pick = chains[0];
+              pick.rows.push(r);
+              free.splice(free.indexOf(pick), 1);
+            }
+          }
+          chains.forEach(c => c.rows.sort((a, b) => a.tx_date < b.tx_date ? -1 : 1));
+        }
+        chains.forEach(c => { c.day = modeDay(c.rows.length ? c.rows : [{ tx_date: '2000-01-01' }]); });
+      }
+
+      for (const c of chains) {
+        if (c.rows.length < 2) continue;
+        const first = c.rows[0], last = c.rows[c.rows.length - 1];
+        const amt = Math.round(last.amount);
+        const gapDays = (now - dnum(last.tx_date)) / DAY;
+        const cycle = c.cycle || 'month';
+        const limit = cycle === 'year' ? 400 : cycle === 'half' ? 25 : 50;
+        out.push({
+          merchant: last.merchant, amount: amt, cycle,
+          day: c.day,
+          count: c.rows.length, first: first.tx_date, last: last.tx_date,
+          total: c.rows.reduce((a, r) => a + Math.round(r.amount), 0),
+          active: gapDays <= limit,
+          sinceDays: Math.round(gapDays),
+          category: last.category, sub: last.subcategory
+        });
+      }
+    }
+    return out.sort((a, b) => (b.active - a.active) || (b.amount - a.amount));
+  }
+
   root.Analytics = {
     set SPOUSE_RECORDED(v) { root.__setSpouse(v); },
     get SPOUSE_RECORDED() { return SPOUSE_RECORDED; },
     won, man, periodKey, periodLabel, seriesByPeriod, byCategory, bySub, topMerchants,
-    monthlyAverage, buildAdvice, cashflow, topDrivers, effectiveMonths, FIXED_SUBS, NOT_FIXED_SUBS, planSummary, instDone, CYCLE_DIV, isFixed, recurringMerchants, fixedSummary, FOCUS, GROCERY_KEYS, focusMonthly, focusSummary, isHouseholdExpense, isIncome, latestMonths, incomeAvg, subAvg
+    monthlyAverage, buildAdvice, cashflow, topDrivers, effectiveMonths, FIXED_SUBS, NOT_FIXED_SUBS, planSummary, instDone, CYCLE_DIV, isFixed, recurringMerchants, fixedSummary, FOCUS, GROCERY_KEYS, focusMonthly, focusSummary, isHouseholdExpense, isIncome, latestMonths, incomeAvg, subAvg, detectSubs
   };
 })(window);

@@ -551,6 +551,10 @@
           <div class="ic">💳</div><div class="tx"><div class="t1">김현우 용돈 사용 내역</div>
           <div class="t2">삼성카드 결제 · 생활비로 이관 가능</div></div><div class="chev">›</div>
         </div>
+        <div class="row" style="cursor:pointer" data-go="subs">
+          <div class="ic">🔁</div><div class="tx"><div class="t1">정기결제 · 구독</div>
+          <div class="t2">매달 빠져나가는 돈 · 모르는 구독 찾기</div></div><div class="chev">›</div>
+        </div>
         <div class="row" style="cursor:pointer" data-go="coupang">
           <div class="ic">📦</div><div class="tx"><div class="t1">쿠팡 상품 분석</div>
           <div class="t2">무엇을 얼마나 샀는지 상세</div></div><div class="chev">›</div>
@@ -770,6 +774,22 @@
           <b>안드로이드 크롬</b> — 북마크 추가 후 편집해서 URL을 코드로 교체<br>
           여러 해치 주문을 한꺼번에 모으려면 PC용 <b>크롬 확장</b>을 쓰세요.
         </p>
+      </div>
+    </section>
+
+    <!-- ---------- 정기결제 ---------- -->
+    <section id="v-subs" class="view hide">
+      <div class="hscroll" id="subStats"></div>
+      <div class="card">
+        <h2>진행 중인 정기결제</h2>
+        <p class="desc">같은 곳에서 <b>같은 금액이 한 달 간격으로</b> 빠져나간 건을 자동으로 묶었습니다.
+          결제일이 다르면 별개 구독으로 나눠서 보여줍니다.</p>
+        <div id="subList"></div>
+      </div>
+      <div class="card">
+        <h2>끝난 정기결제</h2>
+        <p class="desc">한동안 결제가 없는 건입니다. 해지했다면 그대로 두시면 됩니다.</p>
+        <div id="subDead"></div>
       </div>
     </section>
 
