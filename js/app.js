@@ -34,6 +34,7 @@
 
   /* ---------- 용돈 사용 내역 (삼성카드) ---------- */
   let alRange = 'cur', alLimit = 60;
+  let RENDER_ERR = [];
   let LIMITS = { lunch: 260000, coffee: 100000 };
 
   function allowancePool() {
@@ -713,10 +714,13 @@
     await step('데이터 정리', migrate);
     await step('환율 환산', resolveFx);
 
-    months = A.effectiveMonths(TX);
-    if (!curMonth || !months.includes(curMonth)) curMonth = months[months.length - 1] || null;
-    renderAll();
-    showLoadError(loadErr);
+    await step('기간 계산', () => {
+      months = A.effectiveMonths(TX);
+      if (!curMonth || !months.includes(curMonth)) curMonth = months[months.length - 1] || null;
+    });
+    RENDER_ERR = [];
+    try { renderAll(); } catch (e) { console.error('화면 그리기', e); loadErr.push(`화면 그리기: ${e.message || e}`); }
+    showLoadError(loadErr.concat(RENDER_ERR));
   }
 
   /** 로딩 중 생긴 문제를 화면 위에 띄운다 (조용히 빈 화면이 되는 것을 막는다) */
@@ -826,6 +830,7 @@
     if (!['home', 'ledger', 'budget', 'fixed', 'analysis', 'more'].includes(v))
       $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === 'more'));
     $('#viewTitle').textContent = VIEW_TITLE[v] || '가계부';
+    RENDER_ERR = [];
     $('#mnav').classList.toggle('hide', !MONTH_VIEWS.has(v));
     $('#personBar')?.classList.toggle('hide', v === 'budget' || !['home', 'ledger', 'fixed', 'analysis'].includes(v));
     $('#fab')?.classList.toggle('hide', !['home', 'ledger', 'budget'].includes(v));
@@ -857,24 +862,22 @@
     person = b.dataset.p; renderAll();
   });
 
+  /** 한 부분이 깨져도 나머지 화면은 살린다 */
+  function safe(name, fn) {
+    try { fn(); }
+    catch (e) { console.error(name, e); RENDER_ERR.push(`${name}: ${e.message || e}`); }
+  }
+
   function renderAll() {
     $('#viewTitle').textContent = VIEW_TITLE[view] || '대시보드';
     if (!TX.length) return;
-    applyPerson();
-    renderMonthNav();
-    if (view === 'home') renderHome();
-    if (view === 'ledger') renderLedger();
-    if (view === 'add') renderAdd();
-    if (view === 'budget') renderBudget();
-    if (view === 'allowance') renderAllowance();
-    if (view === 'coupang') renderCoupang();
-    if (view === 'fixed') renderFixedTab();
-    if (view === 'analysis') renderAnalysis();
-    if (view === 'income') renderIncome();
-    if (view === 'expense') renderExpense();
-    if (view === 'work') renderWork();
-    if (view === 'subs') renderSubs();
-    if (view === 'info') renderInfo();
+    safe('사람 필터', applyPerson);
+    safe('월 이동', renderMonthNav);
+    const R = { home: renderHome, ledger: renderLedger, add: renderAdd, budget: renderBudget,
+                allowance: renderAllowance, coupang: renderCoupang, fixed: renderFixedTab,
+                analysis: renderAnalysis, income: renderIncome, expense: renderExpense,
+                work: renderWork, subs: renderSubs, info: renderInfo };
+    if (R[view]) safe(VIEW_TITLE[view] || view, R[view]);
   }
 
   function renderMonthNav() {
