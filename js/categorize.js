@@ -88,6 +88,7 @@
     R('티머니|tmoney|지하철|코레일유통|철도|버스|고속버스|시외버스|SRT|KTX', '교통·운송', '대중교통'),
     R('도로공사|하이패스|통행료|하이캐치|도선협회|고속도로|톨게이트|한국도로', '교통·운송', '통행료'),
     R('GRAB RIDES|GRAB[*]|^GRAB|그랩', '교통·운송', '택시'),
+    R('빵백화점|빵집|베이글|도넛|케이크|제과|베이커리', '음식·숙박', '베이커리/간식'),
     R('아마노|파킹|주차장|하이파킹|주차', '교통·운송', '주차'),
     R('OBSIDIAN|NOTION|FIGMA|CANVA|SLACK|GITHUB|VERCEL|CURSOR|LINEAR', '사업·투자', '구독-업무툴'),
     R('Google Digital|GOOGLE[*]|GOOGLE PAYMENT|GOOGLE CLOUD', '사업·투자', '구독-업무툴'),
