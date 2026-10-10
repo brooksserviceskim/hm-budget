@@ -48,5 +48,7 @@ bash deploy.sh "수정 내용"
 - 명세서 `amount` = 할인 반영 청구액 / `raw_amount` = 할인 전 승인금액.
   중복 판정은 **둘 중 하나만 맞아도** 같은 결제로 봄
 - AI·소프트웨어 구독은 `정보통신`이 아니라 **`사업·투자`** (개인사업자 선투자, 본인 요청)
+- 분류 학습: 드롭다운으로 바꾸면 `settings.merchant_dict`(`learnKey`=normalizeMerchant)에 저장, `categorize()` 가 규칙보다 먼저 봄
+- 홈 '할 일'(`renderTodo`) · ＋ 빠른 입력(`qaOpen`, 기존 `#fab` 재사용) · 수동 지출 저장은 `saveExpense()` 하나로
 - 대시보드 맨 위 **월급 배분** 카드: `settings.payday` (`keep` 통장 잔류분 · `autos` 자동이체). 기본값은 `PAYDAY_DEFAULT`
 - 한글 경로는 macOS에서 NFD. 경로는 `os.listdir()` 로 받고 비교할 때만 NFC 정규화

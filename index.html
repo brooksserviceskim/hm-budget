@@ -78,6 +78,7 @@
     <!-- ---------- 홈 ---------- -->
     <section id="v-home" class="view">
       <div id="smsWatch"></div>
+      <div class="card hide" id="todoCard"></div>
       <div class="card" id="paydayCard"></div>
       <div class="card" id="homeHero">
         <div class="cap">이번 달 남은 돈</div>
@@ -906,8 +907,25 @@
     </section>
   </main>
 
-  <button class="fab" id="fab" title="입력">+</button>
+  <button class="fab" id="fab" title="빠른 지출 입력" aria-label="빠른 지출 입력">+</button>
 
+  <div id="qaSheet" class="qa hide">
+    <div class="qa-back" id="qaBack"></div>
+    <form class="qa-panel" id="qaForm" autocomplete="off">
+      <div class="qa-grab"></div>
+      <input id="qaA" class="qa-amt num" type="number" inputmode="numeric" placeholder="금액" aria-label="금액">
+      <div class="qa-chips" id="qaChips"></div>
+      <input id="qaN" class="pill" type="text" placeholder="사용처 (예: 이마트)" style="width:100%;margin-top:10px" aria-label="사용처">
+      <div class="grid2" style="margin-top:8px">
+        <select id="qaC" class="pill" aria-label="분류"></select>
+        <input id="qaD" class="pill" type="date" aria-label="날짜">
+      </div>
+      <label class="qa-chk"><input type="checkbox" id="qaBudget" checked> 생활비 예산에서 차감</label>
+      <button class="btn acc block" id="qaSave" type="submit">저장</button>
+      <div class="err" id="qaErr"></div>
+      <button class="btn ghost block sm" id="qaMore" type="button" style="margin-top:8px">외화 · 메모까지 자세히 입력</button>
+    </form>
+  </div>
   <nav class="tabbar"><div class="in" id="tabbar">
     <button data-v="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>홈</button>
     <button data-v="ledger"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>가계부</button>

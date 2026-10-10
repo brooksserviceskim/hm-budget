@@ -824,6 +824,7 @@
     LIMITS = await S.getSetting('allowance_limits', LIMITS).catch(() => LIMITS);
     INCOME_FIXED = await S.getSetting('income_fixed', INCOME_FIXED).catch(() => INCOME_FIXED);
     PAYDAY = await S.getSetting('payday', PAYDAY).catch(() => PAYDAY);
+    C.setUserDict(await S.getSetting('merchant_dict', {}).catch(() => ({})));
     EVENTS = await S.listEvents().catch(() => []);
     CP = await S.listCoupang().catch(() => []);
     if (!CP.length && isAdmin() && window.__COUPANG__?.length) {
@@ -904,6 +905,64 @@
     });
   }
 
+  /* ---------- 홈 '할 일' ----------
+     앱이 기억하고 있다가 해야 할 일만 보여준다. 없으면 카드가 숨는다. */
+  const UPLOAD_SRC = [
+    { name: '삼성카드 명세서', days: 45, test: t => t.source === 'samsung_card' && !/이용내역/.test(t.memo || '') },
+    { name: '삼성카드 이용내역', days: 35, test: t => t.source === 'samsung_card' && /이용내역/.test(t.memo || '') },
+    { name: 'KB국민카드 이용내역', days: 35, test: t => t.source === 'kb_card' },
+    { name: '기업은행 거래내역', days: 35, test: t => t.source === 'bank' }
+  ];
+  function renderTodo() {
+    const el = $('#todoCard'); if (!el) return;
+    const today = new Date();
+    const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+    const items = [];
+
+    // 월급 배분
+    const ym = ymd(today).slice(0, 7);
+    const pay = TX.filter(t => t.kind === 'income' && t.tx_date.slice(0, 7) === ym && /급여/.test(t.income_src || t.subcategory || ''))
+                  .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1)[0];
+    if (pay && (PAYDAY.balanceAt || '') < pay.tx_date)
+      items.push({ t: '월급이 들어왔습니다 — 월급 배분을 입력하세요', d: `${md(pay.tx_date)} ${fmt(pay.amount)}`, act: 'payday', btn: '입력' });
+
+    // 업로드할 파일
+    for (const u of UPLOAD_SRC) {
+      const last = TX.filter(u.test).reduce((a, t) => t.tx_date > a ? t.tx_date : a, '');
+      if (!last) continue;
+      const gap = Math.floor((today - new Date(last)) / 86400000);
+      if (gap > u.days) items.push({ t: `${u.name} 올릴 때가 됐습니다`, d: `마지막 거래 ${md(last)} · ${gap}일 전`, act: 'upload', btn: '올리기' });
+    }
+
+    // 환급 입금 확인 (매월 10일 기업은행 입금)
+    for (const c of CLAIMS.filter(c => c.status === '기안완료'))
+      if (today.getDate() >= 10)
+        items.push({ t: `업무비용 환급 입금 확인 (${c.period})`, d: `기안 ${fmt(+c.amount || 0)}`, act: 'work', btn: '확인' });
+
+    // 분류 안 된 결제 — 그 자리에서 분류
+    const since90 = ymd(new Date(Date.now() - 90 * 86400000));
+    const unc = VTX.filter(t => t.kind === 'expense' && t.category === '미분류' && !t.is_work &&
+                                t.source !== 'sheet' && t.tx_date >= since90)
+                   .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1);
+
+    if (!items.length && !unc.length) { el.classList.add('hide'); el.innerHTML = ''; return; }
+    el.classList.remove('hide');
+    el.innerHTML = `<h2>할 일 <span class="cap">${items.length + (unc.length ? 1 : 0)}</span></h2>` +
+      items.map(i => `<div class="todo"><div class="tx"><div class="t1">${esc(i.t)}</div><div class="t2">${esc(i.d)}</div></div>
+        <button class="btn sm acc" data-todo="${i.act}" type="button">${i.btn}</button></div>`).join('') +
+      (unc.length ? `<div class="todo col"><div class="t1">분류 안 된 결제 ${unc.length}건
+          <span class="cap">· 한 번 고르면 같은 가맹점은 다음부터 자동</span></div>
+        ${unc.slice(0, 8).map(t => `<div class="todo-tx"><span class="nm">${md(t.tx_date)} ${esc(t.merchant)}</span>
+          <span class="num">${fmt(t.amount)}</span>${catSelect(t)}</div>`).join('')}
+        ${unc.length > 8 ? `<div class="cap" style="margin-top:6px">외 ${unc.length - 8}건은 위에서 분류하면 이어서 보입니다</div>` : ''}</div>` : '');
+    el.onclick = e => {
+      const b = e.target.closest('[data-todo]'); if (!b) return;
+      if (b.dataset.todo === 'payday') { $('#paydayCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); $('#pdBal')?.focus(); }
+      else go(b.dataset.todo);
+    };
+  }
+
   /* ---------- 월급 배분 ----------
      카드 선결제 후 남은 돈 − 통장에 남길 돈 − 자동이체 = 저축 가능 */
   function paydayLastHits(match) {
@@ -963,7 +1022,7 @@
         <button class="btn sm ghost" id="pdEdit" type="button">항목 편집</button></div>
       <p class="desc">카드 대금 선결제 후 기업은행 잔액을 넣으면 저축할 수 있는 돈이 나옵니다.</p>
       <div class="pd-row"><span class="nm">선결제 후 남은 돈</span>
-        <input class="pill num pd-in" id="pdBal" type="number" inputmode="numeric" value="${+P.balance || ''}" placeholder="통장 잔액"></div>
+        <input class="pill num pd-in" id="pdBal" type="text" inputmode="numeric" value="${P.balance ? (+P.balance).toLocaleString('ko-KR') : ''}" placeholder="통장 잔액"></div>
       <div class="pd-row minus"><span class="nm">− 통장에 남길 돈</span><span class="num">${fmt(keep)}</span></div>
       ${(P.keep || []).map(i => line(i, paydayLastHits(i.match))).join('')}
       <div class="pd-row minus"><span class="nm">− 자동이체</span><span class="num">${fmt(autos)}</span></div>
@@ -971,19 +1030,24 @@
       <div class="pd-row total"><span class="nm">= 저축 가능</span>
         <span class="num" style="color:${free < 0 ? 'var(--expense)' : 'var(--accent)'}">${fmt(free)}</span></div>
       <div class="pd-row"><span class="nm">이번 달 저축할 돈</span>
-        <input class="pill num pd-in" id="pdSav" type="number" inputmode="numeric" value="${+P.saving || ''}" placeholder="0"></div>
+        <input class="pill num pd-in" id="pdSav" type="text" inputmode="numeric" value="${P.saving ? (+P.saving).toLocaleString('ko-KR') : ''}" placeholder="0"></div>
       <div class="pd-row sub"><span class="nm">저축 후 통장 여유</span>
         <span class="num" style="color:${after < 0 ? 'var(--expense)' : 'var(--ink)'}">${fmt(after)}</span></div>
       <p class="desc" style="margin:8px 0 0">${P.balanceAt ? `잔액 기준 ${esc(P.balanceAt)}` : ''}</p>`;
     $('#pdEdit').onclick = () => { paydayEdit = true; renderPayday(); };
     el.onclick = null;
     const commit = async () => {
-      P.balance = +$('#pdBal').value || 0; P.saving = +$('#pdSav').value || 0;
+      const n = v => +String(v).replace(/[^0-9]/g, '') || 0;
+      P.balance = n($('#pdBal').value); P.saving = n($('#pdSav').value);
       const d = new Date(); P.balanceAt = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
       renderPayday();
       try { await S.setSetting('payday', P); } catch (err) { toast('저장 실패: ' + (err.message || err)); }
     };
-    $('#pdBal').onchange = commit; $('#pdSav').onchange = commit;
+    const live = e => {           // 입력하는 동안 쉼표 넣기
+      const d = e.target.value.replace(/[^0-9]/g, '');
+      e.target.value = d ? (+d).toLocaleString('ko-KR') : '';
+    };
+    ['#pdBal', '#pdSav'].forEach(q => { $(q).oninput = live; $(q).onchange = commit; });
   }
 
   /* ---------- 데이터 정리 마이그레이션 ---------- */
@@ -1000,7 +1064,7 @@
         patch.memo = (t.memo || '').replace(/\s*FX:KRW:[0-9.]+/, '').replace(/\s*@[0-9.]+\??/, '').trim()
                      || '삼성카드 해외 이용내역 (원화 결제)';
       }
-      if (t.source === 'sms' && t.category === '미분류') {
+      if (t.kind === 'expense' && t.category === '미분류') {   // 문자·업로드 뒤 학습한 분류 적용
         const g = C.categorize(t.merchant);
         if (g.matched) { patch.category = g.category; patch.subcategory = g.sub; }
       }
@@ -1080,7 +1144,7 @@
     RENDER_ERR = [];
     $('#mnav').classList.toggle('hide', !MONTH_VIEWS.has(v));
     $('#personBar')?.classList.toggle('hide', v === 'budget' || !['home', 'ledger', 'fixed', 'analysis'].includes(v));
-    $('#fab')?.classList.toggle('hide', !['home', 'ledger', 'budget'].includes(v));
+    $('#fab')?.classList.toggle('hide', ['add', 'expense', 'income', 'upload', 'cpimport', 'more'].includes(v));
     window.scrollTo(0, 0);
     try { renderAll(); } catch (e) { RENDER_ERR.push(`화면 그리기: ${e.message || e}`); }
     try { showLoadError(RENDER_ERR); } catch (e) { console.error(e); }
@@ -1144,6 +1208,7 @@
   function renderHome() {
     safe('문자 감시', renderSmsWatch);
     safe('월급 배분', renderPayday);
+    safe('할 일', renderTodo);
     const sub = monthTx(curMonth);
     const exp = sub.filter(A.isHouseholdExpense).reduce((a, t) => a + t.amount, 0);
     const inc = sub.filter(A.isIncome).reduce((a, t) => a + t.amount, 0);
@@ -1402,8 +1467,28 @@
     const sub = C.CATEGORIES.includes(cat) && cat === t.category ? t.subcategory : '';
     await S.updateTx(id, { category: cat, subcategory: sub });
     t.category = cat; t.subcategory = sub;
-    applyPerson(); renderAll(); toast(`${t.merchant} → ${cat}`);
+    let more = 0;
+    if (cat !== '미분류' && t.kind === 'expense') {
+      try { more = await learnCategory(t.merchant, cat, sub); }
+      catch (err) { console.error('분류 학습', err); toast('분류 학습 저장 실패: ' + (err.message || err)); }
+    }
+    applyPerson(); renderAll(); toast(`${t.merchant} → ${cat}${more ? ` · 같은 가맹점 ${more}건도 함께` : ''}`);
   });
+
+  /** 가맹점 → 분류를 기억하고, 같은 가맹점의 미분류 건도 바꾼다. 바꾼 건수를 돌려줌 */
+  async function learnCategory(merchant, cat, sub) {
+    const key = C.learnKey(merchant);
+    if (!key) return 0;
+    const dict = Object.assign({}, C.getUserDict(), { [key]: [cat, sub || ''] });
+    await S.setSetting('merchant_dict', dict);
+    C.setUserDict(dict);
+    const same = TX.filter(x => x.kind === 'expense' && x.category === '미분류' && C.learnKey(x.merchant) === key && canEdit(x));
+    for (const x of same) {
+      await S.updateTx(x.id, { category: cat, subcategory: sub || '' });
+      x.category = cat; x.subcategory = sub || '';
+    }
+    return same.length;
+  }
 
   // 거래 상세 (탭하면 카테고리/업무 변경)
   $('#ledgerList').addEventListener('click', async e => {
@@ -1424,7 +1509,6 @@
   const todayYM = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
 
   /* ================= 통합 입력 (지출 · 수입) ================= */
-  $('#fab')?.addEventListener('click', () => go('add'));
 
   $('#startSeg')?.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -1479,23 +1563,86 @@
     $('#axBudget').checked = budgetish;
   });
 
+  /** 수동 지출 저장 (입력 화면 · ＋ 빠른 입력 공용) */
+  async function saveExpense({ d, amt, nm, cat, budget, note }) {
+    const g = C.categorize(nm);
+    const memo = [budget ? '[생활비]' : '[생활비제외]', note || ''].filter(Boolean).join(' ');
+    await S.insertTx([{
+      kind: 'expense', source: 'manual', tx_date: d, merchant: C.normalizeMerchant(nm),
+      amount: amt, raw_amount: amt, benefit: 0,
+      category: cat, subcategory: (g.matched && g.category === cat) ? g.sub : '',
+      income_src: null, is_work: false, installment: '', bill_month: null,
+      memo, owner: USER.name,
+      fingerprint: `manual|out|${d}|${nm}|${amt}|${Date.now()}`
+    }]);
+  }
+
+  /* ---------- ＋ 빠른 입력 ----------
+     금액 → 최근 가맹점 칩 → 저장. 외화·메모는 '자세히' 로 입력 화면에서. */
+  const qaBudgetish = (cat, sub) => BUDGET_SUBS.has(sub) || BUDGET_CATS.has(cat);
+  function qaOpen() {
+    if (!USER) return;
+    if (!$('#qaC').options.length)
+      $('#qaC').innerHTML = C.CATEGORIES.filter(c => c !== '미분류' && c !== '업무비용')
+        .map(c => `<option value="${c}">${C.CAT_ICON[c] || ''} ${c}</option>`).join('');
+    const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    const agg = new Map();
+    for (const t of TX) {
+      if (t.kind !== 'expense' || t.tx_date < since || ownerOf(t) !== USER.name) continue;
+      if (!['manual', 'sms'].includes(t.source) || t.category === '미분류') continue;
+      const o = agg.get(t.merchant) || { m: t.merchant, c: t.category, n: 0 };
+      o.n++; agg.set(t.merchant, o);
+    }
+    const top = [...agg.values()].sort((a, b) => b.n - a.n).slice(0, 10);
+    $('#qaChips').innerHTML = top.length
+      ? top.map(o => `<button class="chip" type="button" data-m="${esc(o.m)}" data-c="${esc(o.c)}">${C.CAT_ICON[o.c] || ''} ${esc(o.m)}</button>`).join('')
+      : '<span class="cap">자주 쓰는 곳이 여기에 생깁니다</span>';
+    const d = new Date();
+    $('#qaD').value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    $('#qaA').value = ''; $('#qaN').value = ''; $('#qaErr').textContent = '';
+    $('#qaC').value = '식료품·비주류음료'; $('#qaBudget').checked = true;
+    $('#qaSheet').classList.remove('hide');
+    $('#qaA').focus();   // 탭한 순간에 바로 — 휴대폰 키패드가 뜨려면 사용자 동작 안에서 호출해야 함
+  }
+  const qaClose = () => $('#qaSheet').classList.add('hide');
+  const qaPick = (cat, sub) => {
+    if (![...$('#qaC').options].some(o => o.value === cat)) return;
+    $('#qaC').value = cat; $('#qaBudget').checked = qaBudgetish(cat, sub);
+  };
+  $('#fab')?.addEventListener('click', qaOpen);
+  $('#qaBack')?.addEventListener('click', qaClose);
+  $('#qaMore')?.addEventListener('click', () => { qaClose(); go('add'); });
+  $('#qaChips')?.addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    $('#qaN').value = b.dataset.m;
+    const g = C.categorize(b.dataset.m);
+    qaPick(b.dataset.c, g.matched ? g.sub : '');
+    if (!$('#qaA').value) $('#qaA').focus();
+  });
+  $('#qaN')?.addEventListener('input', e => {
+    const g = C.categorize(e.target.value.trim());
+    if (g.matched) qaPick(g.category, g.sub);
+  });
+  $('#qaForm')?.addEventListener('submit', async e => {
+    e.preventDefault(); $('#qaErr').textContent = '';
+    const amt = +$('#qaA').value, nm = $('#qaN').value.trim(), d = $('#qaD').value;
+    if (!amt || !nm || !d) { $('#qaErr').textContent = '금액과 사용처를 입력하세요.'; return; }
+    const btn = $('#qaSave'); btn.disabled = true;
+    try {
+      await saveExpense({ d, amt, nm, cat: $('#qaC').value, budget: $('#qaBudget').checked });
+      qaClose(); await reload(); go(view);
+      toast(`${nm} ${fmt(amt)} 저장${$('#qaBudget').checked ? ' · 생활비 반영' : ''}`);
+    } catch (err) { $('#qaErr').textContent = err.message || String(err); }
+    finally { btn.disabled = false; }
+  });
+
   $('#addExpForm')?.addEventListener('submit', async e => {
     e.preventDefault(); $('#axErr').textContent = '';
     try {
       const d = $('#axD').value, amt = +$('#axA').value, nm = $('#axN').value.trim();
       if (!d || !amt || !nm) throw new Error('날짜 · 금액 · 사용처를 입력하세요.');
-      const cat = stripIcon($('#axC').value);
-      const g = C.categorize(nm);
-      const tag = $('#axBudget').checked ? '[생활비]' : '[생활비제외]';
-      const memo = [tag, $('#axM').value.trim()].filter(Boolean).join(' ');
-      await S.insertTx([{
-        kind: 'expense', source: 'manual', tx_date: d, merchant: C.normalizeMerchant(nm),
-        amount: amt, raw_amount: amt, benefit: 0,
-        category: cat, subcategory: (g.matched && g.category === cat) ? g.sub : '',
-        income_src: null, is_work: false, installment: '', bill_month: null,
-        memo, owner: USER.name,
-        fingerprint: `manual|out|${d}|${nm}|${amt}|${Date.now()}`
-      }]);
+      await saveExpense({ d, amt, nm, cat: stripIcon($('#axC').value),
+                          budget: $('#axBudget').checked, note: $('#axM').value.trim() });
       $('#axA').value = ''; $('#axN').value = ''; $('#axM').value = '';
       await reload(); go('add'); toast($('#axBudget').checked ? '생활비에 반영되었습니다' : '지출이 저장되었습니다');
     } catch (err) { $('#axErr').textContent = err.message; }

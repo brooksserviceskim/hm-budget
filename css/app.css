@@ -315,3 +315,29 @@ select.catsel{border:1px solid var(--line);border-radius:8px;padding:2px 20px 2p
 .pd-edit input{min-width:0}
 .pd-edit [data-f=when]{grid-column:1}
 .pd-edit [data-del]{grid-column:2}
+
+/* 할 일 */
+.todo{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line2)}
+.todo .tx{flex:1;min-width:0}
+.todo .t1{font-size:14.5px;font-weight:700}
+.todo .t2{font-size:12px;color:var(--muted);margin-top:2px}
+.todo.col{display:block}
+.todo-tx{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0 0;font-size:13.5px}
+.todo-tx .nm{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.todo-tx .num{font-weight:800}
+.todo-tx .catsel{max-width:100%}
+
+/* ＋ 빠른 입력 */
+.qa{position:fixed;inset:0;z-index:90}
+.qa-back{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+.qa-panel{position:absolute;left:0;right:0;bottom:0;max-width:720px;margin:0 auto;background:#fff;
+  border-radius:22px 22px 0 0;padding:10px 16px calc(16px + var(--safe-b));max-height:92vh;overflow:auto}
+.qa-grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+.qa-amt{width:100%;border:0;border-bottom:2px solid var(--accent);font-size:30px;font-weight:800;padding:6px 2px;
+  background:transparent;outline:none}
+.qa-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.qa-chk{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;background:#f2f4f6;border-radius:12px;
+  padding:12px 14px;margin:10px 0}
+.qa-chk input{width:19px;height:19px}
+.qa .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.qa .grid2>*{min-width:0;width:100%}

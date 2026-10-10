@@ -386,9 +386,17 @@
     return '기타';
   }
 
+  /* 사용자가 직접 고친 분류 (settings.merchant_dict) — 규칙보다 먼저 적용 */
+  let USER_DICT = {};
+  const learnKey = name => normalizeMerchant(name);
+  function setUserDict(d) { USER_DICT = d || {}; }
+  function getUserDict() { return USER_DICT; }
+
   function categorize(merchant) {
     const m = norm(merchant);
     if (!m) return { category: '미분류', sub: '', workHint: false, matched: false };
+    const u = USER_DICT[learnKey(m)];
+    if (u) return { category: u[0], sub: u[1] || '', workHint: false, matched: true, learned: true };
     if (DICT[m]) return { category: DICT[m][0], sub: DICT[m][1], workHint: false, matched: true };
     const workHint = WORK_HINT.test(m);
     for (const r of RULES) {
@@ -401,7 +409,7 @@
   const BIZ_SUBS = ['구독-AI', '구독-업무툴', '구독-디자인', '광고비', '구독-AI/디자인'];
 
   root.Categorize = { CATEGORIES, BENCH_CATEGORIES, CAT_COLORS, CAT_ICON, SUB_ICON, iconOf, categorize, categorizeSheetItem,
-                      DICT, RULES, SHEET_RULES, BIZ_SUBS, NORMALIZE, normalizeMerchant,
+                      DICT, RULES, SHEET_RULES, BIZ_SUBS, NORMALIZE, normalizeMerchant, learnKey, setUserDict, getUserDict,
                       COUPANG_CATS, COUPANG_COLORS, COUPANG_ICON, coupangCategory };
 })(typeof window !== 'undefined' ? window : globalThis);
 
