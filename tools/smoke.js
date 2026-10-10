@@ -30,6 +30,7 @@ for (const b of (w.__SEED__.bank || [])) {
   const r = P.bankRow(b, fp); if (r) TX.push(Object.assign(r, { id: TX.length + 1, owner: '김현우' }));
 }
 w.Store = { ONLINE: true,
+  async listSmsLog() { return []; }, async resolveSmsLog() {},
   async getSetting(k, d) { return d; }, async setSetting() {},
   async listEvents() { return []; }, async insertEvent() {}, async updateEvent() {}, async deleteEvent() {},
   async signIn() {}, async signOut() {}, async currentUser() { return { name: '김현우', role: 'admin' }; },
@@ -44,7 +45,7 @@ load('js/app.js');
 setTimeout(() => {
   let bad = 0;
   console.log(`거래 ${TX.length}건으로 검사\n`);
-  for (const v of ['home', 'ledger', 'budget', 'allowance', 'fixed', 'analysis', 'subs', 'work', 'income', 'expense', 'more', 'info', 'prefs', 'upload', 'add']) {
+  for (const v of ['home', 'ledger', 'budget', 'allowance', 'fixed', 'analysis', 'subs', 'work', 'income', 'expense', 'more', 'info', 'prefs', 'upload', 'add', 'coupang', 'cpimport']) {
     errs.length = 0;
     const btn = w.document.querySelector(`#tabbar button[data-v="${v}"]`) || w.document.querySelector(`[data-go="${v}"]`);
     btn && btn.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

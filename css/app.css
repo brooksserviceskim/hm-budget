@@ -298,3 +298,20 @@ select.catsel{border:1px solid var(--line);border-radius:8px;padding:2px 20px 2p
 .peer .pv{font-size:12.5px;font-weight:700;text-align:right;min-width:104px}
 .rec{font-size:13px;line-height:1.7;color:var(--ink2);padding:10px 0 0}
 .rec li{margin-bottom:7px}
+
+/* 월급 배분 */
+.pd-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;font-size:14.5px}
+.pd-row .nm{flex:1;min-width:0;font-weight:700}
+.pd-row .nm .cap{display:block;font-weight:500;margin-top:2px}
+.pd-row .num{font-weight:800;white-space:nowrap}
+.pd-row.minus{border-top:1px solid var(--line2);margin-top:4px}
+.pd-row.sub{padding:5px 0 5px 14px;font-size:13px;color:var(--ink2)}
+.pd-row.sub .nm{font-weight:600}
+.pd-row.sub .num{font-weight:700}
+.pd-row.total{border-top:2px solid var(--ink);margin-top:8px;padding-top:12px;font-size:16px}
+.pd-row.total .num{font-size:22px}
+.pd-in{width:150px;text-align:right;font-weight:800}
+.pd-edit{display:grid;grid-template-columns:1fr 100px;gap:6px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line2)}
+.pd-edit input{min-width:0}
+.pd-edit [data-f=when]{grid-column:1}
+.pd-edit [data-del]{grid-column:2}

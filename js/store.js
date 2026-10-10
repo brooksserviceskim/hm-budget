@@ -256,7 +256,24 @@
     if (error) throw error;
   }
 
-  root.Store = { ONLINE, getSetting, setSetting, listEvents, insertEvent, updateEvent, deleteEvent, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx, deleteTxMany,
+  /* ---------------- 문자 연동 기록 (sms_log) ---------------- */
+  async function listSmsLog(days) {
+    if (!ONLINE) return null;                      // 오프라인 모드에선 문자 연동 자체가 없음
+    const since = new Date(Date.now() - (days || 30) * 86400000).toISOString();
+    const { data, error } = await sb.from('sms_log').select('id,received_at,raw,result,ok,resolved')
+      .gte('received_at', since).order('received_at', { ascending: false }).limit(300);
+    if (error) {
+      if (/sms_log/.test(error.message || '')) throw new Error('sms_log 테이블이 없습니다 — supabase/migration-sms-watch.sql 을 SQL Editor 에서 실행하세요');
+      throw error;
+    }
+    return data;
+  }
+  async function resolveSmsLog(ids) {
+    const { error } = await sb.from('sms_log').update({ resolved: true }).in('id', ids);
+    if (error) throw error;
+  }
+
+  root.Store = { ONLINE, getSetting, setSetting, listSmsLog, resolveSmsLog, listEvents, insertEvent, updateEvent, deleteEvent, signIn, signOut, currentUser, listTx, insertTx, updateTx, deleteTx, deleteTxMany,
                  listClaims, upsertClaim, deleteClaim,
                  listFixed, insertFixed, updateFixed, deleteFixed,
                  listCoupang, insertCoupang, updateCoupang };

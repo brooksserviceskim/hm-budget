@@ -13,6 +13,24 @@
   let BUDGET = { amount: 1000000, startDay: 1 };
   let INCOME_FIXED = { '김현우': 5090000, '홍미란': 2500000 };
   let EVENTS = [];
+  let SMSLOG = null;   // 문자 연동 기록 (null = 오프라인/미로드)
+  /* 월급날 배분 — 카드 선결제 후 남은 돈에서 통장 잔류분·자동이체를 빼고 저축 가능액을 본다.
+     통장 잔류분 출금일은 2026-01~07 기업은행 내역에서 확인한 값 */
+  const PAYDAY_DEFAULT = {
+    balance: 1627787, balanceAt: '2026-10-10', saving: 0,
+    keep: [
+      { name: '보험비 (한화손해보험)', amount: 170000, when: '15일 · 21일경', match: '한화손' },
+      { name: '화재보험 (삼성화재)', amount: 27900, when: '13일', match: '삼성화' },
+      { name: '동부 약관대출 이자', amount: 7000, when: '5일 · 25일경', match: 'DB손보약대' }
+    ],
+    autos: [
+      { name: '주택담보대출 (신한)', amount: 523000, when: '11일 · ~2036.09' },
+      { name: '신용대출 (토스)', amount: 265000, when: '11일 · ~2030.09' },
+      { name: '보험비 (수협)', amount: 215000, when: '11일 · ~2029.09' }
+    ]
+  };
+  let PAYDAY = JSON.parse(JSON.stringify(PAYDAY_DEFAULT));
+  let paydayEdit = false;
   let bgLimit = 40;
   // 생활비로 볼 하위분류
   const BUDGET_SUBS = new Set(['쿠팡', '마트/장보기', '편의점', '기타식품',
@@ -805,6 +823,7 @@
     BUDGET = await S.getSetting('budget', { amount: 1000000, startDay: 1 }).catch(() => BUDGET);
     LIMITS = await S.getSetting('allowance_limits', LIMITS).catch(() => LIMITS);
     INCOME_FIXED = await S.getSetting('income_fixed', INCOME_FIXED).catch(() => INCOME_FIXED);
+    PAYDAY = await S.getSetting('payday', PAYDAY).catch(() => PAYDAY);
     EVENTS = await S.listEvents().catch(() => []);
     CP = await S.listCoupang().catch(() => []);
     if (!CP.length && isAdmin() && window.__COUPANG__?.length) {
@@ -820,6 +839,7 @@
     await step('쿠팡 가져오기', consumePending);
     await step('데이터 정리', migrate);
     await step('환율 환산', resolveFx);
+    await step('문자 연동 기록', async () => { SMSLOG = S.listSmsLog ? await S.listSmsLog(30) : null; });
 
     await step('기간 계산', () => {
       months = A.effectiveMonths(TX);
@@ -844,6 +864,126 @@
     box.innerHTML = `<div class="wt">일부 기능에서 문제가 있었습니다</div>
       <div class="wd">${errs.map(esc).join('<br>')}<br>
       화면의 나머지는 정상입니다. 이 메시지를 알려주시면 고쳐드립니다.</div>`;
+  }
+
+  /* ---------- 문자 연동 감시 ----------
+     ① 파싱 실패 문자가 있으면 원문과 함께 빨간 박스
+     ② 마지막 수신이 48시간 넘게 없으면 노란 박스 (MacroDroid 꺼짐 의심) */
+  const SMS_QUIET_H = 48;
+  function renderSmsWatch() {
+    const el = $('#smsWatch'); if (!el) return;
+    if (SMSLOG === null) { el.innerHTML = ''; return; }
+    const lastTx = TX.filter(t => t.source === 'sms')
+      .map(t => new Date(`${t.tx_date}T${(t.tx_time || '00:00').slice(0, 5)}:00`).getTime())
+      .reduce((a, b) => Math.max(a, b), 0);
+    const lastLog = SMSLOG.length ? new Date(SMSLOG[0].received_at).getTime() : 0;
+    const last = Math.max(lastTx, lastLog);
+    const hours = last ? (Date.now() - last) / 3600000 : Infinity;
+    const fails = SMSLOG.filter(r => !r.ok && !r.resolved && r.result && r.result.error);
+    const when = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+    let h = '';
+    if (fails.length) {
+      h += `<div class="warn-box bad"><div class="wt">문자 ${fails.length}건을 가계부에 넣지 못했습니다</div>
+        <div class="wd">카드사 문자 형식이 바뀌었을 수 있습니다. 아래 결제는 직접 입력해 주세요.
+        ${fails.slice(0, 5).map(r => `<details style="margin-top:6px"><summary>${when(r.received_at)} · ${esc(r.result.error)}</summary>
+          <pre style="white-space:pre-wrap;font-size:12px;margin:6px 0 0">${esc(r.raw)}</pre></details>`).join('')}
+        <div style="margin-top:10px"><button class="btn sm ghost" id="smsResolve">확인함 · 숨기기</button></div></div></div>`;
+    }
+    if (hours > SMS_QUIET_H) {
+      h += `<div class="warn-box mid"><div class="wt">카드 문자가 ${last ? `${Math.floor(hours / 24)}일째` : '한 번도'} 들어오지 않았습니다</div>
+        <div class="wd">${last ? `마지막 수신 ${when(last)}. ` : ''}결제를 했는데도 이렇다면 휴대폰의 MacroDroid
+        '카드 알림 가계부' 매크로가 꺼졌거나 배터리 최적화에 잡힌 것입니다.</div></div>`;
+    }
+    el.innerHTML = h;
+    $('#smsResolve')?.addEventListener('click', async () => {
+      try {
+        await S.resolveSmsLog(fails.map(r => r.id));
+        fails.forEach(r => { r.resolved = true; });
+        renderSmsWatch(); toast('숨겼습니다');
+      } catch (e) { toast('실패: ' + (e.message || e)); }
+    });
+  }
+
+  /* ---------- 월급 배분 ----------
+     카드 선결제 후 남은 돈 − 통장에 남길 돈 − 자동이체 = 저축 가능 */
+  function paydayLastHits(match) {
+    if (!match) return [];
+    const since = new Date(Date.now() - 75 * 86400000).toISOString().slice(0, 10);
+    return TX.filter(t => t.source === 'bank' && t.kind === 'expense' && t.tx_date >= since &&
+                          (t.merchant || '').includes(match))
+             .sort((a, b) => a.tx_date < b.tx_date ? 1 : -1).slice(0, 4);
+  }
+  function renderPayday() {
+    const el = $('#paydayCard'); if (!el) return;
+    const P = PAYDAY;
+    const sum = a => (a || []).reduce((x, i) => x + (+i.amount || 0), 0);
+    const keep = sum(P.keep), autos = sum(P.autos);
+    const free = (+P.balance || 0) - keep - autos;
+    const after = free - (+P.saving || 0);
+    if (paydayEdit) {
+      const rows = (k, list) => list.map((i, n) => `
+        <div class="pd-edit" data-k="${k}" data-n="${n}">
+          <input class="pill" data-f="name" value="${esc(i.name)}" placeholder="항목">
+          <input class="pill num" data-f="amount" type="number" inputmode="numeric" value="${+i.amount || 0}">
+          <input class="pill" data-f="when" value="${esc(i.when || '')}" placeholder="출금일">
+          <button class="btn sm ghost" data-del="${k}:${n}" type="button">✕</button></div>`).join('') +
+        `<button class="btn sm ghost" data-add="${k}" type="button" style="margin:4px 0 12px">+ 항목 추가</button>`;
+      el.innerHTML = `<h2>월급 배분 · 항목 편집</h2>
+        <div class="cap" style="margin:8px 0 6px">기업은행에 남길 돈</div>${rows('keep', P.keep)}
+        <div class="cap" style="margin:8px 0 6px">자동이체</div>${rows('autos', P.autos)}
+        <div style="display:flex;gap:8px"><button class="btn acc sm" id="pdSave" type="button">저장</button>
+        <button class="btn sm ghost" id="pdCancel" type="button">취소</button></div>`;
+      const pull = () => $$('#paydayCard .pd-edit').forEach(r => {
+        const it = P[r.dataset.k][+r.dataset.n];
+        it.name = r.querySelector('[data-f=name]').value.trim();
+        it.amount = +r.querySelector('[data-f=amount]').value || 0;
+        it.when = r.querySelector('[data-f=when]').value.trim();
+      });
+      el.onclick = async e => {
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.add) { pull(); P[b.dataset.add].push({ name: '', amount: 0, when: '' }); renderPayday(); }
+        else if (b.dataset.del) { pull(); const [k, n] = b.dataset.del.split(':'); P[k].splice(+n, 1); renderPayday(); }
+        else if (b.id === 'pdCancel') {
+          PAYDAY = await S.getSetting('payday', PAYDAY_DEFAULT).catch(() => PAYDAY_DEFAULT);
+          paydayEdit = false; renderPayday();
+        } else if (b.id === 'pdSave') {
+          pull(); ['keep', 'autos'].forEach(k => { P[k] = P[k].filter(i => i.name || i.amount); });
+          try { await S.setSetting('payday', P); paydayEdit = false; renderPayday(); toast('저장되었습니다'); }
+          catch (err) { toast('저장 실패: ' + (err.message || err)); }
+        }
+      };
+      return;
+    }
+    const line = (i, hits) => `<div class="pd-row sub"><span class="nm">${esc(i.name)}
+        <span class="cap">${esc(i.when || '')}${hits && hits.length ? ` · 최근 ${hits.map(t => `${+t.tx_date.slice(5, 7)}/${+t.tx_date.slice(8)} ${fmt(t.amount)}`).join(', ')}` : ''}</span></span>
+        <span class="num">${fmt(+i.amount || 0)}</span></div>`;
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">월급 배분</h2>
+        <button class="btn sm ghost" id="pdEdit" type="button">항목 편집</button></div>
+      <p class="desc">카드 대금 선결제 후 기업은행 잔액을 넣으면 저축할 수 있는 돈이 나옵니다.</p>
+      <div class="pd-row"><span class="nm">선결제 후 남은 돈</span>
+        <input class="pill num pd-in" id="pdBal" type="number" inputmode="numeric" value="${+P.balance || ''}" placeholder="통장 잔액"></div>
+      <div class="pd-row minus"><span class="nm">− 통장에 남길 돈</span><span class="num">${fmt(keep)}</span></div>
+      ${(P.keep || []).map(i => line(i, paydayLastHits(i.match))).join('')}
+      <div class="pd-row minus"><span class="nm">− 자동이체</span><span class="num">${fmt(autos)}</span></div>
+      ${(P.autos || []).map(i => line(i)).join('')}
+      <div class="pd-row total"><span class="nm">= 저축 가능</span>
+        <span class="num" style="color:${free < 0 ? 'var(--expense)' : 'var(--accent)'}">${fmt(free)}</span></div>
+      <div class="pd-row"><span class="nm">이번 달 저축할 돈</span>
+        <input class="pill num pd-in" id="pdSav" type="number" inputmode="numeric" value="${+P.saving || ''}" placeholder="0"></div>
+      <div class="pd-row sub"><span class="nm">저축 후 통장 여유</span>
+        <span class="num" style="color:${after < 0 ? 'var(--expense)' : 'var(--ink)'}">${fmt(after)}</span></div>
+      <p class="desc" style="margin:8px 0 0">${P.balanceAt ? `잔액 기준 ${esc(P.balanceAt)}` : ''}</p>`;
+    $('#pdEdit').onclick = () => { paydayEdit = true; renderPayday(); };
+    el.onclick = null;
+    const commit = async () => {
+      P.balance = +$('#pdBal').value || 0; P.saving = +$('#pdSav').value || 0;
+      const d = new Date(); P.balanceAt = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      renderPayday();
+      try { await S.setSetting('payday', P); } catch (err) { toast('저장 실패: ' + (err.message || err)); }
+    };
+    $('#pdBal').onchange = commit; $('#pdSav').onchange = commit;
   }
 
   /* ---------- 데이터 정리 마이그레이션 ---------- */
@@ -1002,6 +1142,8 @@
 
   /* ---------- 홈 ---------- */
   function renderHome() {
+    safe('문자 감시', renderSmsWatch);
+    safe('월급 배분', renderPayday);
     const sub = monthTx(curMonth);
     const exp = sub.filter(A.isHouseholdExpense).reduce((a, t) => a + t.amount, 0);
     const inc = sub.filter(A.isIncome).reduce((a, t) => a + t.amount, 0);
