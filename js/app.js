@@ -787,9 +787,15 @@
     await S.signOut(); location.reload();
   });
 
+  /* 시작 화면 — 사람별로 저장. 고른 적 없으면 미란은 생활비, 현우는 대시보드 */
+  const START_DEFAULT = { '홍미란': 'budget' };
+  const startKey = () => 'bb_start_view:' + (USER?.name || '');
+  const startView = () => localStorage.getItem(startKey()) || localStorage.getItem('bb_start_view')
+                          || START_DEFAULT[USER?.name] || 'home';
+
   async function enter(u) {
     USER = u;
-    view = localStorage.getItem('bb_start_view') || 'home';     // 로그인 후 첫 화면
+    view = startView();                                         // 로그인 후 첫 화면
     $('#login').classList.add('hide');
     $('#app').classList.remove('hide');
     $('#userRole').textContent = u.name;
@@ -1196,7 +1202,7 @@
     $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
     if (v === 'cpimport') { $('#bmCode').value = BOOKMARKLET; }
     if (v === 'prefs') {
-      const cur = localStorage.getItem('bb_start_view') || 'home';
+      const cur = startView();
       $$('#startSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === cur));
     }
     if (!['home', 'ledger', 'fixed', 'analysis', 'more'].includes(v))
@@ -1585,7 +1591,7 @@
   $('#startSeg')?.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     $$('#startSeg button').forEach(x => x.classList.toggle('on', x === b));
-    localStorage.setItem('bb_start_view', b.dataset.v);
+    localStorage.setItem(startKey(), b.dataset.v);
     toast(`시작 화면을 '${VIEW_TITLE[b.dataset.v]}' 로 저장했습니다`);
   });
   $('#addKind')?.addEventListener('click', e => {
