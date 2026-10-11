@@ -801,6 +801,10 @@
     $('#userRole').textContent = u.name;
     $('#userRole').className = 'badge' + (isAdmin() ? '' : ' view');
     $$('[data-admin]').forEach(el => el.classList.toggle('hide', !isAdmin()));
+    // 미란 화면은 '월급날' 자리에 '생활비' 탭 (미란이 주로 보는 화면)
+    const mr = u.name === '홍미란';
+    $('#tabbar button[data-v="budget"]')?.classList.toggle('hide', !mr);
+    $('#tabbar button[data-v="fixed"]')?.classList.toggle('hide', mr);
     try { await reload(); }
     catch (e) { console.error('불러오기', e); showLoadError([`불러오기: ${e.message || e}`]); }
     go(view);
@@ -1205,7 +1209,7 @@
       const cur = startView();
       $$('#startSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === cur));
     }
-    if (!['home', 'ledger', 'fixed', 'analysis', 'more'].includes(v))
+    if (!$$('#tabbar button').some(b => b.dataset.v === v && !b.classList.contains('hide')))
       $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === 'more'));
     $('#viewTitle').textContent = VIEW_TITLE[v] || '가계부';
     RENDER_ERR = [];
