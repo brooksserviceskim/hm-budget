@@ -43,8 +43,8 @@ bash deploy.sh "수정 내용"
 ## 알아둘 설계
 
 - 중복 방지는 `transactions.fingerprint` (unique + `ignoreDuplicates`)
-- `memo` 를 태그 저장소로 쓰고 있음 — **설계 부채**
-  `[생활비]` `[생활비제외]` `[기안:YYYY-MM]` `FX:통화:금액 @환율` `이용내역`
+- memo 태그는 **칼럼으로 이전**: `budget_flag` `claim_period` `fx_cur/fx_amt/fx_rate/fx_provisional` `doc_kind`.
+  새 코드는 칼럼만 쓸 것. 옛 memo 태그 해석은 `js/tags.js`(`Tags.fromMemo`) 한 곳 + DB 트리거 `tx_tags_from_memo`
 - 명세서 `amount` = 할인 반영 청구액 / `raw_amount` = 할인 전 승인금액.
   중복 판정은 **둘 중 하나만 맞아도** 같은 결제로 봄
 - AI·소프트웨어 구독은 `정보통신`이 아니라 **`사업·투자`** (개인사업자 선투자, 본인 요청)

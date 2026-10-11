@@ -42,9 +42,8 @@
 
   function isBudgetTx(t) {
     if (!A.isHouseholdExpense(t)) return false;
-    const m = t.memo || '';
-    if (m.includes('[생활비제외]')) return false;
-    if (m.includes('[생활비]')) return true;
+    if (t.budget_flag === false) return false;   // 직접 뺀 것
+    if (t.budget_flag === true) return true;     // 직접 넣은 것
     if (fxOf(t)) return false;                   // 해외 결제(여행)는 생활비 예산과 분리
     if (isSamsung(t)) return false;              // 삼성카드는 기본 '용돈'
     return BUDGET_SUBS.has(t.subcategory) || BUDGET_CATS.has(t.category) ||
@@ -376,10 +375,8 @@
     e.stopPropagation();
     const id = +b.closest('.row').dataset.id, t = TX.find(x => x.id === id); if (!t) return;
     const on = isBudgetTx(t);
-    let memo = (t.memo || '').replace(/\[생활비\]|\[생활비제외\]/g, '').trim();
-    memo = (on ? '[생활비제외] ' : '[생활비] ') + memo;
-    await S.updateTx(id, { memo: memo.trim() });
-    t.memo = memo.trim();
+    await S.updateTx(id, { budget_flag: !on });
+    t.budget_flag = !on;
     applyPerson(); renderAllowance(); renderBudget();
     toast(on ? '용돈으로 되돌렸습니다' : '생활비로 이관했습니다');
   });
@@ -415,12 +412,9 @@
      서버가 amount=0, memo 에 "FX:MYR:150.00" 형태로 넣어둔 건을 채운다
      ============================================================ */
   const FX_FEE = 1.002;                       // 해외사용 수수료 0.2%
-  function fxOf(t) {
-    const m = /FX:([A-Z]{3}):([0-9.]+)/.exec(t.memo || '');
-    return m ? { cur: m[1], amt: parseFloat(m[2]) } : null;
-  }
-  /* memo 끝의 "@1234.56" 은 확정 환율, "@1234.56?" 는 잠정(그날 고시 전) */
-  function fxProvisional(t) { return /@[0-9.]+\?/.test(t.memo || ''); }
+  const fxOf = t => Tags.fxOf(t);
+  /* fx_rate 는 적용 환율, fx_provisional 은 잠정(그날 고시 전) — 다음날 다시 계산 */
+  const fxProvisional = t => !!t.fx_provisional;
 
   /**
    * 결제일 환율. 주말·공휴일이나 아직 고시 전이면 직전 영업일 값을 쓰되
@@ -483,11 +477,11 @@
       t.amount = conv.krw; t.raw_amount = conv.krw;
       return true;
     }
-    const tag = `@${conv.rate.toFixed(2)}${conv.provisional ? '?' : ''}`;
-    if (+t.amount === conv.krw && (t.memo || '').includes(tag)) return false;
-    const memo = (t.memo || '').replace(/\s*@[0-9.]+\??/, '') + ' ' + tag;
-    await S.updateTx(t.id, { amount: conv.krw, raw_amount: conv.krw, memo });
-    t.amount = conv.krw; t.raw_amount = conv.krw; t.memo = memo;
+    const patch = { amount: conv.krw, raw_amount: conv.krw,
+                    fx_rate: +conv.rate.toFixed(2), fx_provisional: !!conv.provisional };
+    if (+t.amount === patch.amount && +t.fx_rate === patch.fx_rate && !!t.fx_provisional === patch.fx_provisional) return false;
+    await S.updateTx(t.id, patch);
+    Object.assign(t, patch);
     return true;
   }
 
@@ -511,7 +505,7 @@
     const f = fxOf(t);
     if (!f) return '';
     const nf = new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2 });
-    const rate = (/@([0-9.]+)/.exec(t.memo || '') || [])[1];
+    const rate = t.fx_rate;
     const wait = +t.amount === 0
       ? ` <button class="tag w fx-go" data-fxid="${t.id}" title="눌러서 지금 환율로 계산">환율 대기 ↻</button>`
       : (rate ? ` <span class="tag" title="적용 환율">1${f.cur} = ${(+rate).toLocaleString()}원</span>` : '');
@@ -585,7 +579,7 @@
    */
   async function dedupeUsageVsStatement(onStep) {
     if (!canWrite()) return { del: 0, timed: 0 };
-    const isUsage = t => /이용내역/.test(t.memo || '');
+    const isUsage = Tags.isUsage;
     const cards = TX.filter(t => t.kind === 'expense' && CARD_SRC.has(t.source));
     const usage = cards.filter(isUsage);
     const stmt  = cards.filter(t => !isUsage(t));
@@ -910,9 +904,9 @@
   /* ---------- 홈 '할 일' ----------
      앱이 기억하고 있다가 해야 할 일만 보여준다. 없으면 카드가 숨는다. */
   const UPLOAD_SRC = [
-    { name: '삼성카드 명세서', days: 45, test: t => t.source === 'samsung_card' && !/이용내역/.test(t.memo || ''),
+    { name: '삼성카드 명세서', days: 45, test: t => t.source === 'samsung_card' && !Tags.isUsage(t),
       how: '삼성카드 → 명세서 → 월 명세서 엑셀(.xlsx). 할인 반영된 청구액이 들어갑니다' },
-    { name: '삼성카드 이용내역', days: 35, test: t => t.source === 'samsung_card' && /이용내역/.test(t.memo || ''),
+    { name: '삼성카드 이용내역', days: 35, test: t => t.source === 'samsung_card' && Tags.isUsage(t),
       how: '삼성카드 → 이용내역 조회 → 국내 · 해외 엑셀. 승인 시각이 여기에만 있습니다' },
     { name: 'KB국민카드 이용내역', days: 35, test: t => t.source === 'kb_card',
       how: 'KB국민카드 → 이용내역 조회 → 엑셀(.xls)' },
@@ -1120,8 +1114,8 @@
       if (kf && kf.cur === 'KRW') {               // 원화 결제인데 환산 대기로 잘못 들어간 건
         patch.amount = Math.round(kf.amt);
         patch.raw_amount = Math.round(kf.amt);
-        patch.memo = (t.memo || '').replace(/\s*FX:KRW:[0-9.]+/, '').replace(/\s*@[0-9.]+\??/, '').trim()
-                     || '삼성카드 해외 이용내역 (원화 결제)';
+        Object.assign(patch, { fx_cur: null, fx_amt: null, fx_rate: null, fx_provisional: false });
+        if (!t.memo) patch.memo = '삼성카드 해외 이용내역 (원화 결제)';
       }
       if (t.kind === 'expense' && t.category === '미분류') {   // 문자·업로드 뒤 학습한 분류 적용
         const g = C.categorize(t.merchant);
@@ -1511,10 +1505,8 @@
     e.stopPropagation();
     const id = +b.dataset.bid, t = TX.find(x => x.id === id); if (!t) return;
     const on = isBudgetTx(t);
-    let memo = (t.memo || '').replace(/\[생활비\]|\[생활비제외\]/g, '').trim();
-    memo = (on ? '[생활비제외] ' : '[생활비] ') + memo;
-    await S.updateTx(id, { memo: memo.trim() });
-    t.memo = memo.trim();
+    await S.updateTx(id, { budget_flag: !on });
+    t.budget_flag = !on;
     applyPerson(); renderAll();
     toast(on ? '생활비에서 제외했습니다' : '생활비에 포함했습니다');
   });
@@ -1638,13 +1630,13 @@
   /** 수동 지출 저장 (입력 화면 · ＋ 빠른 입력 공용) */
   async function saveExpense({ d, amt, nm, cat, budget, note }) {
     const g = C.categorize(nm);
-    const memo = [budget ? '[생활비]' : '[생활비제외]', note || ''].filter(Boolean).join(' ');
+    const memo = note || '';
     await S.insertTx([{
       kind: 'expense', source: 'manual', tx_date: d, merchant: C.normalizeMerchant(nm),
       amount: amt, raw_amount: amt, benefit: 0,
       category: cat, subcategory: (g.matched && g.category === cat) ? g.sub : '',
       income_src: null, is_work: false, installment: '', bill_month: null,
-      memo, owner: USER.name,
+      memo, budget_flag: !!budget, owner: USER.name,
       fingerprint: `manual|out|${d}|${nm}|${amt}|${Date.now()}`
     }]);
   }
@@ -2938,8 +2930,8 @@
   }
 
   /* ---------- 업무비용 ---------- */
-  /* 기안에 반영된 거래는 메모에 [기안:YYYY-MM] 이 붙는다 */
-  const claimTag = t => (/\[기안:(\d{4}-\d{2})\]/.exec(t.memo || '') || [])[1] || '';
+  /* 기안에 반영된 거래는 claim_period = 'YYYY-MM' */
+  const claimTag = t => t.claim_period || '';
   const workPending = () => VTX.filter(t => t.is_work && !claimTag(t));
 
   function renderWork() {
@@ -3026,8 +3018,7 @@
         memo: $('#pdMemo').value || ''
       });
       for (const t of rows) {
-        const memo = ((t.memo || '') + ` [기안:${period}]`).trim();
-        await S.updateTx(t.id, { memo }); t.memo = memo;
+        await S.updateTx(t.id, { claim_period: period }); t.claim_period = period;
       }
       CLAIMS = await S.listClaims();
       applyPerson(); renderWork();

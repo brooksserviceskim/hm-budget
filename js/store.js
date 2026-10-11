@@ -48,7 +48,7 @@
 
   /* ---------------- 거래 ---------------- */
   async function listTx() {
-    if (!ONLINE) return lsGet(LS_TX, []);
+    if (!ONLINE) return lsGet(LS_TX, []).map(Tags.fromMemo);
     const all = [];
     const PAGE = 1000;
     for (let from = 0; ; from += PAGE) {
@@ -58,12 +58,13 @@
       all.push(...data);
       if (data.length < PAGE) break;
     }
-    return all;
+    return all.map(Tags.fromMemo);      // 아직 memo 에 태그가 남은 행이 있어도 칼럼으로 읽히게
   }
 
   /** 중복(fingerprint) 은 건너뛰고 새 건만 저장. @returns {inserted, skipped} */
   async function insertTx(rows) {
     if (!rows.length) return { inserted: 0, skipped: 0 };
+    rows = rows.map(r => Tags.withDefaults(Tags.fromMemo(r)));   // memo 태그 → 칼럼, 행마다 같은 칼럼 구성
     if (!ONLINE) {
       const cur = lsGet(LS_TX, []);
       const seen = new Set(cur.map(r => r.fingerprint));
