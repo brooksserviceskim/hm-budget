@@ -31,6 +31,7 @@
   };
   let PAYDAY = JSON.parse(JSON.stringify(PAYDAY_DEFAULT));
   let paydayEdit = false;
+  let SAVE_HIST = {};   // 'YYYY-MM' → { balance, keep, autos, free, saving, at }
   let bgLimit = 40;
   // 생활비로 볼 하위분류
   const BUDGET_SUBS = new Set(['쿠팡', '마트/장보기', '편의점', '기타식품',
@@ -402,7 +403,7 @@
   };
   let cpRange = 'cur', cpTopMode = 'amount', cpCat = '', cpQ = '', cpLimit = 60;
   const BOOKMARKLET = `javascript:(function()%7Bvar%20APP%3D'https%3A%2F%2Fbrooksserviceskim.github.io%2Fhm-budget%2F'%3Bvar%20clean%3Dfunction(s)%7Breturn%20String(s%7C%7C'').replace(%2F%5Cs%2B%2Fg%2C'%20').trim()%7D%3Bvar%20pad%3Dfunction(n)%7Breturn%20String(n).padStart(2%2C'0')%7D%3Bvar%20isPrice%3Dfunction(t)%7Breturn%20%2F%5E%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%24%2F.test(t)%7D%3Bvar%20isQty%3Dfunction(t)%7Breturn%20%2F%5E%5Cd%2B%5Cs*%EA%B0%9C%24%2F.test(t)%7D%3Bvar%20isDate%3Dfunction(t)%7Breturn%20%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F.test(t)%7D%3Bvar%20BAD%3D%2F%EC%9E%A5%EB%B0%94%EA%B5%AC%EB%8B%88%7C%EB%B0%B0%EC%86%A1%EC%A1%B0%ED%9A%8C%7C%EB%A6%AC%EB%B7%B0%7C%EA%B5%90%ED%99%98%7C%EB%B0%98%ED%92%88%7C%EC%9E%AC%EA%B5%AC%EB%A7%A4%7C%EC%A3%BC%EB%AC%B8%20%EC%83%81%EC%84%B8%7C%EB%8D%94%EB%B3%B4%EA%B8%B0%7C%EC%B7%A8%EC%86%8C%7C%EC%98%81%EC%88%98%EC%A6%9D%7C%EB%AC%B8%EC%9D%98%2F%3Bvar%20rows%3D%5B%5D%2Cseen%3D%7B%7D%2CcurDate%3D''%3Bvar%20w%3Ddocument.createTreeWalker(document.body%2CNodeFilter.SHOW_ELEMENT%2Cnull%2Cfalse)%3Bvar%20nodes%3D%5B%5D%3Bwhile(w.nextNode())%7Bnodes.push(w.currentNode)%7Dfor(var%20i%3D0%3Bi%3Cnodes.length%3Bi%2B%2B)%7Bvar%20el%3Dnodes%5Bi%5D%3Bif(el.children.length%3D%3D%3D0)%7Bvar%20t%3Dclean(el.textContent)%3Bif(isDate(t))%7Bvar%20m%3Dt.match(%2F%5E(20%5Cd%7B2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%5Cs*%5B.%5C-%5C%2F%5D%5Cs*(%5Cd%7B1%2C2%7D)%2F)%3BcurDate%3Dm%5B1%5D%2B'-'%2Bpad(m%5B2%5D)%2B'-'%2Bpad(m%5B3%5D)%3Bcontinue%7Dif(isPrice(t))%7Bvar%20price%3DNumber(t.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%3Bif(!price)%7Bcontinue%7Dvar%20box%3Del%2Clv%3D0%3Bwhile(box.parentElement%26%26lv%3C5)%7Bbox%3Dbox.parentElement%3Blv%2B%2B%3Bvar%20leaves%3Dbox.querySelectorAll('*')%2Ccand%3D%5B%5D%2Cqty%3D1%3Bfor(var%20j%3D0%3Bj%3Cleaves.length%3Bj%2B%2B)%7Bvar%20e2%3Dleaves%5Bj%5D%3Bif(e2.children.length)continue%3Bvar%20s2%3Dclean(e2.textContent)%3Bif(!s2)continue%3Bif(isQty(s2))%7Bqty%3DNumber(s2.replace(%2F%5B%5E%5Cd%5D%2Fg%2C''))%7C%7C1%3Bcontinue%7Dif(isPrice(s2)%7C%7CisDate(s2))continue%3Bif(BAD.test(s2))continue%3Bif(s2.length%3E%3D5)cand.push(s2)%3B%7Dcand.sort(function(a%2Cb)%7Breturn%20b.length-a.length%7D)%3Bif(cand.length)%7Bvar%20name%3Dcand%5B0%5D.replace(%2F%5Cs*%5B%5Cd%2C%5D%7B3%2C%7D%5Cs*%EC%9B%90%5Cs*%24%2F%2C'').trim()%3Bif(name.length%3E%3D5)%7Bvar%20key%3DcurDate%2B'%7C'%2Bname%2B'%7C'%2Bprice%2B'%7C'%2Bqty%3Bif(!seen%5Bkey%5D)%7Bseen%5Bkey%5D%3D1%3Brows.push(%7Bd%3AcurDate%2Cn%3Aname.slice(0%2C120)%2Cq%3Aqty%2Cp%3Aprice%7D)%7Dbreak%3B%7D%7D%7D%7D%7D%7Dif(!rows.length)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%84%20%EC%B0%BE%EC%A7%80%20%EB%AA%BB%ED%96%88%EC%8A%B5%EB%8B%88%EB%8B%A4.%5Cn%EC%BF%A0%ED%8C%A1%20%EC%A3%BC%EB%AC%B8%EB%AA%A9%EB%A1%9D%20%ED%99%94%EB%A9%B4%EC%97%90%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dif(rows.length%3E250)%7Brows%3Drows.slice(0%2C250)%7Dvar%20payload%3DencodeURIComponent(JSON.stringify(rows))%3Bvar%20url%3DAPP%2B'%23cpimport%3D'%2Bpayload%3Bif(url.length%3E60000)%7Balert('%EC%A3%BC%EB%AC%B8%EC%9D%B4%20%EB%84%88%EB%AC%B4%20%EB%A7%8E%EC%8A%B5%EB%8B%88%EB%8B%A4.%20%ED%8E%98%EC%9D%B4%EC%A7%80%EB%A5%BC%20%EB%82%98%EB%88%A0%EC%84%9C%20%EB%88%8C%EB%9F%AC%EC%A3%BC%EC%84%B8%EC%9A%94.')%3Breturn%7Dvar%20win%3Dnull%3Btry%7Bwin%3Dwindow.open(url%2C'_blank')%7Dcatch(e)%7B%7Dif(!win)%7Blocation.href%3Durl%7D%7D)()%3B`;
-  const VIEW_TITLE = { home: '대시보드', ledger: '가계부', coupang: '쿠팡', fixed: '고정비', analysis: '분석',
+  const VIEW_TITLE = { home: '대시보드', ledger: '가계부', coupang: '쿠팡', fixed: '월급날', analysis: '분석',
                        cpimport: '쿠팡 가져오기', expense: '지출 입력', budget: '생활비', add: '입력',
                        prefs: '환경 설정', allowance: '김현우 용돈 사용 내역',
                        more: '더보기', upload: '명세서 업로드', income: '수입 입력',
@@ -793,7 +794,7 @@
 
   async function enter(u) {
     USER = u;
-    view = localStorage.getItem('bb_start_view') || 'budget';   // 로그인 후 첫 화면
+    view = localStorage.getItem('bb_start_view') || 'home';     // 로그인 후 첫 화면
     $('#login').classList.add('hide');
     $('#app').classList.remove('hide');
     $('#userRole').textContent = u.name;
@@ -824,6 +825,7 @@
     LIMITS = await S.getSetting('allowance_limits', LIMITS).catch(() => LIMITS);
     INCOME_FIXED = await S.getSetting('income_fixed', INCOME_FIXED).catch(() => INCOME_FIXED);
     PAYDAY = await S.getSetting('payday', PAYDAY).catch(() => PAYDAY);
+    SAVE_HIST = await S.getSetting('payday_history', {}).catch(() => ({}));
     C.setUserDict(await S.getSetting('merchant_dict', {}).catch(() => ({})));
     EVENTS = await S.listEvents().catch(() => []);
     CP = await S.listCoupang().catch(() => []);
@@ -908,11 +910,36 @@
   /* ---------- 홈 '할 일' ----------
      앱이 기억하고 있다가 해야 할 일만 보여준다. 없으면 카드가 숨는다. */
   const UPLOAD_SRC = [
-    { name: '삼성카드 명세서', days: 45, test: t => t.source === 'samsung_card' && !/이용내역/.test(t.memo || '') },
-    { name: '삼성카드 이용내역', days: 35, test: t => t.source === 'samsung_card' && /이용내역/.test(t.memo || '') },
-    { name: 'KB국민카드 이용내역', days: 35, test: t => t.source === 'kb_card' },
-    { name: '기업은행 거래내역', days: 35, test: t => t.source === 'bank' }
+    { name: '삼성카드 명세서', days: 45, test: t => t.source === 'samsung_card' && !/이용내역/.test(t.memo || ''),
+      how: '삼성카드 → 명세서 → 월 명세서 엑셀(.xlsx). 할인 반영된 청구액이 들어갑니다' },
+    { name: '삼성카드 이용내역', days: 35, test: t => t.source === 'samsung_card' && /이용내역/.test(t.memo || ''),
+      how: '삼성카드 → 이용내역 조회 → 국내 · 해외 엑셀. 승인 시각이 여기에만 있습니다' },
+    { name: 'KB국민카드 이용내역', days: 35, test: t => t.source === 'kb_card',
+      how: 'KB국민카드 → 이용내역 조회 → 엑셀(.xls)' },
+    { name: '기업은행 거래내역', days: 35, test: t => t.source === 'bank',
+      how: '기업은행 → 거래내역 조회 → 엑셀 저장(.xls). 출력용 · 거래용 둘 다 됩니다' }
   ];
+  function uploadStatus() {
+    const today = new Date();
+    return UPLOAD_SRC.map(u => {
+      const last = TX.filter(u.test).reduce((a, t) => t.tx_date > a ? t.tx_date : a, '');
+      const gap = last ? Math.floor((today - new Date(last)) / 86400000) : null;
+      return Object.assign({}, u, { last, gap, due: !last || gap > u.days });
+    });
+  }
+
+  /* ---------- 업로드 체크리스트 ---------- */
+  function renderUploadCheck() {
+    const el = $('#upCheck'); if (!el) return;
+    const st = uploadStatus();
+    const due = st.filter(u => u.due).length;
+    const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+    el.innerHTML = `<h2>올릴 파일 ${due ? `<span class="cap">${due}개 남음</span>` : '<span class="cap">모두 최신</span>'}</h2>
+      <p class="desc">파일 종류는 자동으로 알아봅니다. 올리고 나면 문자 · 명세서 중복 정리와 환율 계산도 자동으로 합니다.</p>` +
+      st.map(u => `<div class="todo"><div class="ic" style="font-size:20px">${u.due ? '⬜' : '✅'}</div>
+        <div class="tx"><div class="t1">${esc(u.name)}</div>
+        <div class="t2" style="white-space:normal">${u.last ? `마지막 거래 ${md(u.last)} · ${u.gap}일 전` : '아직 올린 적 없음'}<br>${esc(u.how)}</div></div></div>`).join('');
+  }
   function renderTodo() {
     const el = $('#todoCard'); if (!el) return;
     const today = new Date();
@@ -928,12 +955,8 @@
       items.push({ t: '월급이 들어왔습니다 — 월급 배분을 입력하세요', d: `${md(pay.tx_date)} ${fmt(pay.amount)}`, act: 'payday', btn: '입력' });
 
     // 업로드할 파일
-    for (const u of UPLOAD_SRC) {
-      const last = TX.filter(u.test).reduce((a, t) => t.tx_date > a ? t.tx_date : a, '');
-      if (!last) continue;
-      const gap = Math.floor((today - new Date(last)) / 86400000);
-      if (gap > u.days) items.push({ t: `${u.name} 올릴 때가 됐습니다`, d: `마지막 거래 ${md(last)} · ${gap}일 전`, act: 'upload', btn: '올리기' });
-    }
+    for (const u of uploadStatus())
+      if (u.last && u.due) items.push({ t: `${u.name} 올릴 때가 됐습니다`, d: `마지막 거래 ${md(u.last)} · ${u.gap}일 전`, act: 'upload', btn: '올리기' });
 
     // 환급 입금 확인 (매월 10일 기업은행 입금)
     for (const c of CLAIMS.filter(c => c.status === '기안완료'))
@@ -958,9 +981,41 @@
         ${unc.length > 8 ? `<div class="cap" style="margin-top:6px">외 ${unc.length - 8}건은 위에서 분류하면 이어서 보입니다</div>` : ''}</div>` : '');
     el.onclick = e => {
       const b = e.target.closest('[data-todo]'); if (!b) return;
-      if (b.dataset.todo === 'payday') { $('#paydayCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); $('#pdBal')?.focus(); }
+      if (b.dataset.todo === 'payday') { go('fixed'); $('#pdBal')?.focus(); }
       else go(b.dataset.todo);
     };
+  }
+
+  /* ---------- 월급날 탭 = 월급 배분 + 저축 이력 + (기존) 현금흐름 · 고정비 ---------- */
+  function renderPaydayTab() {
+    safe('월급 배분', renderPayday);
+    safe('저축 이력', renderSaveHist);
+    renderFixedTab();
+  }
+
+  /** 달마다 '저축 가능 vs 실제 저축' — 처음 진단(자동저축을 멈춘 것)을 다시 안 겪게 */
+  function renderSaveHist() {
+    const el = $('#saveHist'); if (!el) return;
+    const rows = Object.entries(SAVE_HIST).sort((a, b) => a[0] < b[0] ? 1 : -1).slice(0, 12);
+    if (!rows.length) {
+      el.innerHTML = `<h2>저축 이력</h2><p class="desc" style="margin:0">위에서 <b>이번 달 저축할 돈</b>을 넣으면 달마다 여기에 쌓입니다.</p>`;
+      return;
+    }
+    const tot = rows.reduce((a, [, r]) => a + (+r.saving || 0), 0);
+    const max = Math.max(1, ...rows.map(([, r]) => Math.max(+r.free || 0, +r.saving || 0)));
+    el.innerHTML = `<h2>저축 이력</h2>
+      <p class="desc">${rows.length}개월 저축 합계 <b>${fmt(tot)}</b> · 월평균 <b>${fmt(Math.round(tot / rows.length))}</b></p>` +
+      rows.map(([ym, r]) => {
+        const sv = +r.saving || 0, fr = +r.free || 0;
+        const pc = fr > 0 ? Math.round(sv / fr * 100) : 0;
+        return `<div class="sh-row"><div class="sh-m">${+ym.slice(5)}월</div>
+          <div class="sh-bar"><div class="track" style="height:10px">
+            <div class="me" style="width:${Math.min(100, fr / max * 100)}%;background:var(--line)"></div></div>
+            <div class="track" style="height:10px;margin-top:-10px;background:transparent">
+            <div class="me" style="width:${Math.min(100, sv / max * 100)}%;background:var(--accent)"></div></div></div>
+          <div class="sh-v"><b class="num">${fmt(sv)}</b><span class="cap">가능 ${man(fr)}${fr > 0 ? ` · ${pc}%` : ''}</span></div></div>`;
+      }).join('') +
+      `<p class="desc" style="margin:8px 0 0">초록 = 실제 저축 · 회색 = 저축 가능액</p>`;
   }
 
   /* ---------- 월급 배분 ----------
@@ -1040,8 +1095,12 @@
       const n = v => +String(v).replace(/[^0-9]/g, '') || 0;
       P.balance = n($('#pdBal').value); P.saving = n($('#pdSav').value);
       const d = new Date(); P.balanceAt = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-      renderPayday();
-      try { await S.setSetting('payday', P); } catch (err) { toast('저장 실패: ' + (err.message || err)); }
+      const ym = P.balanceAt.slice(0, 7);
+      SAVE_HIST = Object.assign({}, SAVE_HIST, { [ym]: { balance: P.balance, keep: sum(P.keep), autos: sum(P.autos),
+        free: P.balance - sum(P.keep) - sum(P.autos), saving: P.saving, at: P.balanceAt } });
+      renderPayday(); safe('저축 이력', renderSaveHist);
+      try { await S.setSetting('payday', P); await S.setSetting('payday_history', SAVE_HIST); }
+      catch (err) { toast('저장 실패: ' + (err.message || err)); }
     };
     const live = e => {           // 입력하는 동안 쉼표 넣기
       const d = e.target.value.replace(/[^0-9]/g, '');
@@ -1135,15 +1194,22 @@
     $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
     if (v === 'cpimport') { $('#bmCode').value = BOOKMARKLET; }
     if (v === 'prefs') {
-      const cur = localStorage.getItem('bb_start_view') || 'budget';
+      const cur = localStorage.getItem('bb_start_view') || 'home';
       $$('#startSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === cur));
     }
-    if (!['home', 'ledger', 'budget', 'fixed', 'analysis', 'more'].includes(v))
+    if (!['home', 'ledger', 'fixed', 'analysis', 'more'].includes(v))
       $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === 'more'));
     $('#viewTitle').textContent = VIEW_TITLE[v] || '가계부';
     RENDER_ERR = [];
     $('#mnav').classList.toggle('hide', !MONTH_VIEWS.has(v));
-    $('#personBar')?.classList.toggle('hide', v === 'budget' || !['home', 'ledger', 'fixed', 'analysis'].includes(v));
+    // 사람 필터는 가계부 · 분석에서만. 다른 화면으로 가면 2인 합계로 되돌린다 (숨은 필터 방지)
+    const personHere = ['ledger', 'analysis'].includes(v);
+    $('#personBar')?.classList.toggle('hide', !personHere);
+    if (!personHere && person) {
+      person = '';
+      $$('#personSeg button').forEach(x => x.classList.toggle('on', x.dataset.p === ''));
+      applyPerson();
+    }
     $('#fab')?.classList.toggle('hide', ['add', 'expense', 'income', 'upload', 'cpimport', 'more'].includes(v));
     window.scrollTo(0, 0);
     try { renderAll(); } catch (e) { RENDER_ERR.push(`화면 그리기: ${e.message || e}`); }
@@ -1186,7 +1252,7 @@
     safe('사람 필터', applyPerson);
     safe('월 이동', renderMonthNav);
     const R = { home: renderHome, ledger: renderLedger, add: renderAdd, budget: renderBudget,
-                allowance: renderAllowance, coupang: renderCoupang, fixed: renderFixedTab,
+                allowance: renderAllowance, coupang: renderCoupang, fixed: renderPaydayTab, upload: renderUploadCheck,
                 analysis: renderAnalysis, income: renderIncome, expense: renderExpense,
                 work: renderWork, subs: renderSubs, info: renderInfo };
     if (R[view]) safe(VIEW_TITLE[view] || view, R[view]);
@@ -1207,7 +1273,6 @@
   /* ---------- 홈 ---------- */
   function renderHome() {
     safe('문자 감시', renderSmsWatch);
-    safe('월급 배분', renderPayday);
     safe('할 일', renderTodo);
     const sub = monthTx(curMonth);
     const exp = sub.filter(A.isHouseholdExpense).reduce((a, t) => a + t.amount, 0);
@@ -1251,6 +1316,13 @@
          <div class="d ${bgPace > 5 ? 'up' : bgPace < -5 ? 'down' : 'flat'}">
            ${dnow}일차 · 사용 ${man(bgUsed)} / ${man(bgAmt)}${bgLeft >= 0 ? ` · 하루 ${man(bgLeft / Math.max(1, dim - dnow + 1))}` : ' · 초과'}
          </div></div>` +
+      (() => {
+        const h = SAVE_HIST[curYM];
+        return `<div class="stat" style="cursor:pointer" data-go="fixed">
+          <div class="n"><i style="background:var(--income)"></i>이번 달 저축</div>
+          <div class="v num">${h ? fmt(+h.saving || 0) : '—'}</div>
+          <div class="d flat">${h ? `가능 ${man(+h.free || 0)} 중` : '월급날 탭에서 기록'}</div></div>`;
+      })() +
       stat('이번 달 지출', fmt(exp), diff === null ? { txt: '비교할 지난달 없음', cls: 'flat' } :
         { txt: `지난달보다 ${diff > 0 ? '▲' : '▼'} ${man(Math.abs(diff))}`, cls: diff > 0 ? 'up' : 'down' }, 'var(--ink)') +
       stat('고정비', fmt(PL.total), { txt: `매월 ${man(PL.monthlyTotal)}${PL.instTotal ? ` + 할부 ${man(PL.instTotal)}` : ''}`, cls: 'flat' }, 'var(--purple)') +
@@ -2652,6 +2724,7 @@
     if (fxn) lines.push(`💱 해외 결제 ${fxn}건을 오늘 기준 환율로 원화 환산했습니다`);
     draw();
     if (dup || fxn) { applyPerson(); renderAll(); }
+    safe('업로드 체크리스트', renderUploadCheck);
     toast(failCount ? `업로드 완료 (실패 ${failCount}건)` : '업로드 완료');
     if (!failCount) setTimeout(() => { log.classList.add('hide'); log.textContent = ''; }, 6000);
   }
