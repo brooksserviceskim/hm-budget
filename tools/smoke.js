@@ -15,7 +15,7 @@ w.console.error = (...a) => errs.push('error: ' + a.map(x => (x && x.stack) || x
 
 const load = f => new w.Function(fs.readFileSync(path.join(ROOT, f), 'utf8'))();
 for (const f of ['js/config.js', 'data/benchmark.js', 'data/seed.js', 'data/coupang.js',
-                 'data/lunar.js', 'js/categorize.js', 'js/parsers.js', 'js/analytics.js', 'js/tags.js', 'js/store.js']) load(f);
+                 'data/lunar.js', 'js/categorize.js', 'js/parsers.js', 'js/analytics.js', 'js/tags.js', 'js/refund.js', 'js/store.js']) load(f);
 
 // 시드로 거래 만들기
 const P = w.Parsers, C = w.Categorize, fp = P.fpFactory();

@@ -51,5 +51,6 @@ bash deploy.sh "수정 내용"
 - 탭 5개: 홈 · 가계부 · 월급날(view id 는 `fixed` 그대로, `renderPaydayTab`) · 분석 · 더보기. 사람 필터는 가계부 · 분석에서만 보이고 다른 화면 가면 2인 합계로 리셋
 - 분류 학습: 드롭다운으로 바꾸면 `settings.merchant_dict`(`learnKey`=normalizeMerchant)에 저장, `categorize()` 가 규칙보다 먼저 봄
 - 홈 '할 일'(`renderTodo`) · ＋ 빠른 입력(`qaOpen`, 기존 `#fab` 재사용) · 수동 지출 저장은 `saveExpense()` 하나로
+- 환급 매칭: `js/refund.js` `Refund.match(CLAIMS, TX)` — '기안완료' 만 대상, 입금액이 부분합과 정확히 같을 때만 자동. reload · 업로드 끝에 `autoMatchRefunds()`
 - 대시보드 맨 위 **월급 배분** 카드: `settings.payday` (`keep` 통장 잔류분 · `autos` 자동이체). 기본값은 `PAYDAY_DEFAULT`
 - 한글 경로는 macOS에서 NFD. 경로는 `os.listdir()` 로 받고 비교할 때만 NFC 정규화

@@ -31,6 +31,7 @@
   };
   let PAYDAY = JSON.parse(JSON.stringify(PAYDAY_DEFAULT));
   let paydayEdit = false;
+  let REFUND_SUGGEST = [];   // 금액이 달라 자동 처리 못 한 환급 입금
   let SAVE_HIST = {};   // 'YYYY-MM' → { balance, keep, autos, free, saving, at }
   let bgLimit = 40;
   // 생활비로 볼 하위분류
@@ -836,6 +837,7 @@
     await step('쿠팡 가져오기', consumePending);
     await step('데이터 정리', migrate);
     await step('환율 환산', resolveFx);
+    await step('환급 매칭', autoMatchRefunds);
     await step('문자 연동 기록', async () => { SMSLOG = S.listSmsLog ? await S.listSmsLog(30) : null; });
 
     await step('기간 계산', () => {
@@ -952,10 +954,16 @@
     for (const u of uploadStatus())
       if (u.last && u.due) items.push({ t: `${u.name} 올릴 때가 됐습니다`, d: `마지막 거래 ${md(u.last)} · ${u.gap}일 전`, act: 'upload', btn: '올리기' });
 
-    // 환급 입금 확인 (매월 10일 기업은행 입금)
-    for (const c of CLAIMS.filter(c => c.status === '기안완료'))
-      if (today.getDate() >= 10)
-        items.push({ t: `업무비용 환급 입금 확인 (${c.period})`, d: `기안 ${fmt(+c.amount || 0)}`, act: 'work', btn: '확인' });
+    // 환급 — 금액이 다른 입금은 확인 요청, 입금이 아직 없으면 알림 (같은 금액은 자동 처리됨)
+    for (const s of REFUND_SUGGEST)
+      items.push({ t: `환급 입금 금액이 기안과 다릅니다 (${s.claim.period})`,
+                   d: `${md(s.dep.tx_date)} 입금 ${fmt(s.dep.amount)} · 기안 ${fmt(+s.claim.amount)}`, act: 'work', btn: '확인' });
+    const sugg = new Set(REFUND_SUGGEST.map(s => s.claim.period));
+    for (const c of CLAIMS.filter(c => c.status === '기안완료' && !sugg.has(c.period))) {
+      const due = new Date(c.filed_date || `${c.period}-01`); due.setMonth(due.getMonth() + 1); due.setDate(12);
+      if (today >= due) items.push({ t: `업무비용 환급이 아직 안 들어왔습니다 (${c.period})`,
+                                    d: `기안 ${fmt(+c.amount || 0)} · 기업은행 내역을 올렸는지 확인`, act: 'work', btn: '확인' });
+    }
 
     // 분류 안 된 결제 — 그 자리에서 분류
     const since90 = ymd(new Date(Date.now() - 90 * 86400000));
@@ -2716,6 +2724,7 @@
     if (fxn) lines.push(`💱 해외 결제 ${fxn}건을 오늘 기준 환율로 원화 환산했습니다`);
     draw();
     if (dup || fxn) { applyPerson(); renderAll(); }
+    try { if (await autoMatchRefunds()) renderAll(); } catch (e) { lines.push(`⚠ 환급 매칭: ${e.message || e}`); draw(); }
     safe('업로드 체크리스트', renderUploadCheck);
     toast(failCount ? `업로드 완료 (실패 ${failCount}건)` : '업로드 완료');
     if (!failCount) setTimeout(() => { log.classList.add('hide'); log.textContent = ''; }, 6000);
@@ -2934,7 +2943,37 @@
   const claimTag = t => t.claim_period || '';
   const workPending = () => VTX.filter(t => t.is_work && !claimTag(t));
 
+  /** 환급 입금 ↔ 기안 자동 매칭. 같은 금액이면 '환급완료' 처리, 다르면 REFUND_SUGGEST 에 */
+  async function autoMatchRefunds() {
+    if (!canWrite()) return 0;
+    const r = Refund.match(CLAIMS, TX);
+    REFUND_SUGGEST = r.suggest;
+    let n = 0;
+    for (const { dep, claims } of r.auto) {
+      const md = `${+dep.tx_date.slice(5, 7)}/${+dep.tx_date.slice(8)}`;
+      for (const c of claims) {
+        await S.upsertClaim({ period: c.period, amount: c.amount, status: '환급완료', filed_date: c.filed_date || null,
+          paid_date: dep.tx_date, memo: [c.memo, `자동 매칭 · ${md} 입금 ${fmt(dep.amount)}`].filter(Boolean).join(' · ') });
+        n++;
+      }
+    }
+    if (n) {
+      CLAIMS = await S.listClaims();
+      toast(`업무비용 환급 ${n}건 입금 확인 → 환급완료`);
+    }
+    return n;
+  }
+
   function renderWork() {
+    const wm = $('#wkMatch');
+    if (wm) wm.innerHTML = REFUND_SUGGEST.map(s => {
+      const md = `${+s.dep.tx_date.slice(5, 7)}/${+s.dep.tx_date.slice(8)}`;
+      return `<div class="warn-box mid"><div class="wt">환급 입금 금액이 기안과 다릅니다 — ${esc(s.claim.period)}</div>
+        <div class="wd">${md} 루트82 입금 <b>${fmt(s.dep.amount)}</b> · 기안 <b>${fmt(+s.claim.amount)}</b>
+        (차액 ${s.diff > 0 ? '+' : ''}${fmt(s.diff)}). 다른 돈과 합쳐 들어왔거나 일부만 들어온 것일 수 있습니다.
+        <div style="margin-top:10px"><button class="btn sm acc" data-refund="${esc(s.claim.period)}|${s.dep.tx_date}|${s.dep.amount}" type="button">
+        이 입금으로 환급완료 처리</button></div></div></div>`;
+    }).join('');
     const tagged = VTX.filter(t => t.is_work).reduce((a, t) => a + t.amount, 0);
     const pend = workPending();
     const pendSum = pend.reduce((a, t) => a + t.amount, 0);
@@ -3039,6 +3078,19 @@
       tr.querySelector('.js-c-paid').value = row.paid_date;
     }
     await S.upsertClaim(row); CLAIMS = await S.listClaims(); renderWork(); toast(`${row.period} 저장됨`);
+  });
+  $('#wkMatch')?.addEventListener('click', async e => {
+    const b = e.target.closest('[data-refund]'); if (!b) return;
+    const [period, date, amt] = b.dataset.refund.split('|');
+    const c = CLAIMS.find(x => x.period === period); if (!c) return;
+    const md = `${+date.slice(5, 7)}/${+date.slice(8)}`;
+    try {
+      await S.upsertClaim({ period, amount: c.amount, status: '환급완료', filed_date: c.filed_date || null, paid_date: date,
+        memo: [c.memo, `${md} 입금 ${fmt(+amt)} (기안과 차액 ${fmt(+amt - +c.amount)})`].filter(Boolean).join(' · ') });
+      CLAIMS = await S.listClaims();
+      REFUND_SUGGEST = Refund.match(CLAIMS, TX).suggest;
+      renderWork(); toast(`${period} 환급완료`);
+    } catch (err) { toast('저장 실패: ' + (err.message || err)); }
   });
   $('#tblClaim').addEventListener('click', async e => {
     if (!e.target.classList.contains('js-c-del')) return;
